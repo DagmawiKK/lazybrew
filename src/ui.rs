@@ -1,0 +1,256 @@
+//! Rendering.
+
+use crate::app::{App, Panel, Section, spinner};
+use ratatui::{prelude::*, widgets::*};
+
+pub fn render(f: &mut Frame, app: &App) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(3),
+            Constraint::Length(8),
+            Constraint::Length(1),
+        ])
+        .split(f.area());
+
+    let header = Paragraph::new(format!(
+        " lazybrew — {} packages ({} outdated) — {} leaves",
+        app.packages.len(),
+        app.packages.iter().filter(|p| p.outdated).count(),
+        app.leaves.len()
+    ))
+    .style(Style::default().fg(Color::Cyan).bold());
+    f.render_widget(header, chunks[0]);
+
+    let body = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(24),
+            Constraint::Percentage(55),
+            Constraint::Percentage(25),
+        ])
+        .split(chunks[1]);
+
+    let output_text = if app.output.is_empty() {
+        "(no command output yet)".to_string()
+    } else {
+        let start = app.output.len().saturating_sub(6);
+        app.output[start..].join("\n")
+    };
+    let output_title = if app.cmd_rx.is_some() {
+        format!(" Output {} ", spinner(app))
+    } else {
+        " Output ".to_string()
+    };
+    let output = Paragraph::new(output_text)
+        .block(Block::default().title(output_title).borders(Borders::ALL));
+    f.render_widget(output, chunks[2]);
+
+    // Sidebar
+    let counts = app.section_counts();
+    let items: Vec<ListItem> = Section::ALL
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let line = format!("{} ({})", s.title(), counts[i]);
+            ListItem::new(line)
+        })
+        .collect();
+    let sidebar = List::new(items)
+        .block(
+            Block::default()
+                .title(" Sections ")
+                .borders(Borders::ALL)
+                .border_style(if app.panel == Panel::Sidebar {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default()
+                }),
+        )
+        .highlight_style(Style::default().bg(Color::DarkGray).bold());
+    let mut state = ListState::default();
+    state.select(Some(app.section_idx));
+    f.render_stateful_widget(sidebar, body[0], &mut state);
+
+    // Package list
+    let list_area = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(3)])
+        .split(body[1]);
+
+    let search_style = if app.searching {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let cursor = if app.searching { "_" } else { "" };
+    f.render_widget(
+        Paragraph::new(format!("/{}{}", app.search, cursor)).style(search_style),
+        list_area[0],
+    );
+
+    if app.installing {
+        f.render_widget(
+            Paragraph::new(format!("install package: {}_", app.install_input))
+                .style(Style::default().fg(Color::Green)),
+            list_area[0],
+        );
+    }
+
+    let rows: Vec<Row> = app
+        .filtered
+        .iter()
+        .map(|p| {
+            let kind = if p.cask { "cask" } else { "brew" };
+            let mark = if p.outdated { " *" } else { "" };
+            Row::new(vec![
+                Cell::from(format!("{}{}", p.name, mark)),
+                Cell::from(p.version.clone()),
+                Cell::from(kind),
+            ])
+        })
+        .collect();
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Min(20),
+            Constraint::Length(14),
+            Constraint::Length(6),
+        ],
+    )
+    .header(Row::new(vec!["Name", "Version", "Type"]).style(Style::default().bold().underlined()))
+    .block(
+        Block::default()
+            .title(format!(" {} ", Section::ALL[app.section_idx].title()))
+            .borders(Borders::ALL)
+            .border_style(if app.panel == Panel::List {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            }),
+    )
+    .row_highlight_style(Style::default().bg(Color::DarkGray));
+    let mut tstate = TableState::default();
+    tstate.select(if app.filtered.is_empty() {
+        None
+    } else {
+        Some(app.list_idx)
+    });
+    f.render_stateful_widget(table, list_area[1], &mut tstate);
+
+    // Details
+    let details_text = match app.selected() {
+        Some(p) => format!(
+            "Name: {}\nType: {}\nVersion: {}\nInstalled: {}\nOutdated: {}\nPinned: {}\n\n{}",
+            p.name,
+            if p.cask { "cask" } else { "formula" },
+            p.version,
+            p.installed_version.as_deref().unwrap_or("?"),
+            p.outdated,
+            p.pinned,
+            p.desc
+        ),
+        None => "No package selected".to_string(),
+    };
+    let details = Paragraph::new(details_text)
+        .wrap(Wrap { trim: true })
+        .block(Block::default().title(" Details ").borders(Borders::ALL));
+    f.render_widget(details, body[2]);
+
+    // Footer
+    let footer_text = if app.load_rx.is_some() {
+        format!("{} loading Homebrew data...", spinner(app))
+    } else {
+        "j/k nav | h/l switch | / search | i install | u upgrade | r remove | U update | x menu | esc clear | q quit".to_string()
+    };
+    let footer = Paragraph::new(footer_text).style(Style::default().fg(Color::Gray));
+    f.render_widget(footer, chunks[3]);
+
+    if let Some(modal) = &app.modal {
+        let area = centered_rect(50, 20, f.area());
+        f.render_widget(Clear, area);
+        f.render_widget(
+            Paragraph::new(modal.text.clone()).block(
+                Block::default()
+                    .title(" Confirm ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            ),
+            area,
+        );
+    }
+
+    if let Some(menu_idx) = app.menu {
+        let items = ["u Upgrade", "r Remove", "i Info", "d Deps", "p Pin/Unpin"];
+        let text = items
+            .iter()
+            .enumerate()
+            .map(|(i, it)| {
+                if i == menu_idx {
+                    format!("> {}", it)
+                } else {
+                    format!("  {}", it)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let area = centered_rect(30, 30, f.area());
+        f.render_widget(Clear, area);
+        f.render_widget(
+            Paragraph::new(text).block(
+                Block::default()
+                    .title(" Actions ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            ),
+            area,
+        );
+    }
+
+    if app.help {
+        let help_text = "lazybrew keybindings\n\n\
+            j/k or up/down   navigate\n\
+            h/l or tab       switch panel\n\
+            /                search\n\
+            esc              clear search\n\
+            g/G              top/bottom\n\
+            i                install package\n\
+            u / r            upgrade / remove\n\
+            U                brew update\n\
+            x                action menu\n\
+            ?                this help\n\
+            q                quit";
+        let area = centered_rect(60, 60, f.area());
+        f.render_widget(Clear, area);
+        f.render_widget(
+            Paragraph::new(help_text).block(
+                Block::default()
+                    .title(" Help ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            ),
+            area,
+        );
+    }
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}
