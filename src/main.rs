@@ -3,6 +3,7 @@ mod brew;
 mod brewfile;
 mod catalog;
 mod input;
+mod theme;
 mod ui;
 
 use anyhow::Result;
