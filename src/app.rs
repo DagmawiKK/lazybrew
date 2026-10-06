@@ -98,7 +98,7 @@ pub struct Modal {
 pub enum ModalAction {
     Upgrade(String, bool), // name, is_cask
     Remove(String, bool),
-    Install(String),
+    Install(String, bool),
     Update,
     UpgradeAll,
     Cleanup,
@@ -264,7 +264,14 @@ pub fn run_modal_action(app: &mut App, modal: &Modal) {
             a.push(name.clone());
             vec![a]
         }
-        ModalAction::Install(name) => vec![vec!["install".into(), name.clone()]],
+        ModalAction::Install(name, cask) => {
+            let mut cmd = vec!["install".into()];
+            if *cask {
+                cmd.push("--cask".into());
+            }
+            cmd.push(name.clone());
+            vec![cmd]
+        }
         ModalAction::Update => vec![vec!["update".into()]],
         ModalAction::UpgradeAll => vec![vec!["upgrade".into()]],
         ModalAction::Cleanup => vec![vec!["cleanup".into()]],

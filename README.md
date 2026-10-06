@@ -37,7 +37,7 @@ services, taps, and Brewfiles — all without leaving the terminal.
 | `/` | search |
 | `esc` | clear search / close |
 | `g`/`G` | top / bottom |
-| `i` | install package (or tap name in Taps section) |
+| `i` | install the **selected** package (prompt in Taps section; reports if already installed) |
 | `u` / `r` | upgrade / remove selected (untap in Taps section) |
 | `A` | upgrade all outdated |
 | `U` | `brew update` |
@@ -47,7 +47,8 @@ services, taps, and Brewfiles — all without leaving the terminal.
 | `v` | vulnerability scan (formulae) |
 | `x` | action menu (info/deps/pin) |
 | `t` | theme picker (6 built-in themes, persisted) |
-| `I` / `R` | install all / remove all (Brewfile section) |
+| `I` | install by typed name (install-all in Brewfile section) |
+| `R` | remove all (Brewfile section) |
 | `e` | export Brewfile to `~/Brewfile` |
 | `?` | help |
 | `q` | quit |

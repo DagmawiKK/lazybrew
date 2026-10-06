@@ -99,7 +99,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
                     let action = if app.sections[app.section_idx] == Section::Taps {
                         ModalAction::Tap(name.clone())
                     } else {
-                        ModalAction::Install(name.clone())
+                        ModalAction::Install(name.clone(), false)
                     };
                     app.modal = Some(Modal {
                         text: format!("Install '{}'? (y/n)", name),
@@ -152,6 +152,11 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
                     text: format!("Install {missing} missing Brewfile packages? (y/n)"),
                     confirm: ModalAction::BrewfileInstall,
                 });
+            } else {
+                // Explicit "type the name" install.
+                app.searching = false;
+                app.installing = true;
+                app.install_input.clear();
             }
         }
         KeyCode::Char('R') => {
@@ -259,7 +264,28 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
         }
         KeyCode::Char('i') => {
             app.searching = false;
-            app.installing = true;
+            if app.sections[app.section_idx] == Section::Taps {
+                // Adding a NEW tap still needs a typed name.
+                app.installing = true;
+                app.install_input.clear();
+            } else if let Some(p) = app.selected().cloned() {
+                if p.installed_version.is_some() || p.service_status.is_some() {
+                    let detail = p.installed_version.unwrap_or_else(|| "installed".into());
+                    app.output.push(format!(
+                        "{} is already installed ({}) — u upgrades, r removes",
+                        p.name, detail
+                    ));
+                } else {
+                    app.modal = Some(Modal {
+                        text: format!("Install '{}'? (y/n)", p.name),
+                        confirm: ModalAction::Install(p.name, p.cask),
+                    });
+                }
+            } else {
+                // Nothing selected: fall back to typing a name.
+                app.installing = true;
+                app.install_input.clear();
+            }
         }
         KeyCode::Char('q') => return KeyFlow::Quit,
         KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
@@ -340,7 +366,7 @@ pub fn help_text() -> String {
         ("/", "search"),
         ("esc", "clear search / close"),
         ("g/G", "top / bottom"),
-        ("i", "install package (or tap in Taps section)"),
+        ("i", "install selected package (tap prompt in Taps)"),
         ("u", "upgrade selected"),
         ("r", "remove selected (untap in Taps section)"),
         ("A", "upgrade all outdated"),
@@ -349,7 +375,8 @@ pub fn help_text() -> String {
         ("n", "brew autoremove"),
         ("s", "start/stop service (Services section)"),
         ("v", "vulnerability scan (formulae)"),
-        ("I/R", "install/remove all (Brewfile section)"),
+        ("I", "install by typed name (all in Brewfile)"),
+        ("R", "remove all (Brewfile section)"),
         ("i/r", "tap/untap (Taps section)"),
         ("x", "action menu (info/deps/pin)"),
         ("t", "theme picker"),
@@ -362,4 +389,115 @@ pub fn help_text() -> String {
         out.push_str(&format!("{key:16} {desc}\n"));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::brew::Package;
+
+    fn pkg(name: &str, installed: bool, cask: bool) -> Package {
+        Package {
+            name: name.into(),
+            desc: format!("{name} desc"),
+            version: "1.0".into(),
+            cask,
+            outdated: false,
+            installed_version: installed.then(|| "1.0".into()),
+            pinned: false,
+            service_status: None,
+        }
+    }
+
+    fn app_with(p: Package) -> App {
+        let mut app = App {
+            sections: vec![
+                Section::Installed,
+                Section::Outdated,
+                Section::Casks,
+                Section::Leaves,
+                Section::Catalog,
+                Section::Services,
+            ],
+            brewfile_entries: Vec::new(),
+            brewfile: Vec::new(),
+            packages: vec![p],
+            filtered: Vec::new(),
+            section_idx: 0,
+            list_idx: 0,
+            panel: Panel::Sidebar,
+            leaves: Vec::new(),
+            catalog: Vec::new(),
+            taps: Vec::new(),
+            services: Vec::new(),
+            vulns: Default::default(),
+            search: String::new(),
+            searching: false,
+            installing: false,
+            install_input: String::new(),
+            output: Vec::new(),
+            cmd_rx: None,
+            modal: None,
+            menu: None,
+            frame: 0,
+            load_rx: None,
+            catalog_rx: None,
+            help: false,
+            theme: crate::theme::DEFAULT,
+            theme_picker: None,
+        };
+        app.apply_section();
+        app
+    }
+
+    fn key(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::empty())
+    }
+
+    #[test]
+    fn i_installs_the_selected_package_without_typing() {
+        let mut app = app_with(pkg("wget", false, false));
+        handle_key(&mut app, key('i'));
+        assert!(!app.installing, "should not ask for the name");
+        let modal = app.modal.expect("confirm modal");
+        assert!(modal.text.contains("wget"));
+        match modal.confirm {
+            ModalAction::Install(name, cask) => {
+                assert_eq!(name, "wget");
+                assert!(!cask);
+            }
+            _ => panic!("expected Install action"),
+        }
+    }
+
+    #[test]
+    fn i_passes_cask_flag_through() {
+        let mut app = app_with(pkg("firefox", false, true));
+        handle_key(&mut app, key('i'));
+        let modal = app.modal.expect("confirm modal");
+        match modal.confirm {
+            ModalAction::Install(_, cask) => assert!(cask),
+            _ => panic!("expected Install action"),
+        }
+    }
+
+    #[test]
+    fn i_on_installed_package_reports_and_skips_prompt() {
+        let mut app = app_with(pkg("git", true, false));
+        handle_key(&mut app, key('i'));
+        assert!(app.modal.is_none());
+        assert!(!app.installing);
+        assert!(
+            app.output.iter().any(|l| l.contains("already installed")),
+            "output should explain it is already installed: {:?}",
+            app.output
+        );
+    }
+
+    #[test]
+    fn capital_i_falls_back_to_typed_name() {
+        let mut app = app_with(pkg("git", true, false));
+        handle_key(&mut app, key('I'));
+        assert!(app.installing, "I should open the type-a-name prompt");
+    }
 }
