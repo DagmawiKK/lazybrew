@@ -1,6 +1,7 @@
 //! Application state and brew command execution.
 
 use crate::brew::{self, Package};
+use crate::theme::Theme;
 use std::sync::mpsc;
 
 pub enum CmdEvent {
@@ -71,6 +72,10 @@ pub struct App {
     pub services: Vec<Package>,
     pub vulns: std::collections::HashMap<String, Vec<String>>,
     pub help: bool,
+    /// Active color theme.
+    pub theme: Theme,
+    /// Open theme-picker selection index (None = closed).
+    pub theme_picker: Option<usize>,
     /// Sections actually shown in the sidebar (Brewfile only in -f mode).
     pub sections: Vec<Section>,
     /// Entries parsed from the -f Brewfile.
@@ -448,6 +453,8 @@ mod tests {
             vulns: Default::default(),
             catalog_rx: None,
             help: false,
+            theme: crate::theme::DEFAULT,
+            theme_picker: None,
         };
         app.apply_section();
         assert_eq!(app.filtered.len(), 2);

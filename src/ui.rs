@@ -1,7 +1,7 @@
 //! Rendering.
 
 use crate::app::{App, Panel, Section, spinner};
-use crate::theme as th;
+use crate::theme::{THEMES, Theme};
 use ratatui::{prelude::*, widgets::*};
 
 pub fn render(f: &mut Frame, app: &App) {
@@ -37,17 +37,18 @@ pub fn render(f: &mut Frame, app: &App) {
 }
 
 fn render_header(f: &mut Frame, app: &App, area: Rect) {
+    let th = app.theme;
     let pulse_frame = if app.cmd_rx.is_some() {
         app.frame * 3
     } else {
         app.frame
     };
-    let dot = Span::styled("● ", Style::default().fg(th::pulse(pulse_frame)));
+    let dot = Span::styled("● ", Style::default().fg(th.pulse(pulse_frame)));
     let title = Span::styled("lazybrew", Style::default().fg(Color::White).bold());
-    let sep = Span::styled(" │ ", Style::default().fg(th::DIM));
+    let sep = Span::styled(" │ ", Style::default().fg(th.dim));
     let stat = |label: &'static str, value: String, color: Color| {
         (
-            Span::styled(label, Style::default().fg(th::DIM)),
+            Span::styled(label, Style::default().fg(th.dim)),
             Span::styled(value, Style::default().fg(color).bold()),
         )
     };
@@ -55,15 +56,15 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
     let (l2, v2) = stat(
         " outdated",
         app.count_for(Section::Outdated).to_string(),
-        th::WARN,
+        th.warn,
     );
     let (l3, v3) = stat(
         " leaves",
         app.count_for(Section::Leaves).to_string(),
-        th::GOOD,
+        th.good,
     );
     let (l4, v4) = stat(" catalog", app.catalog.len().to_string(), Color::LightBlue);
-    let (l5, v5) = stat(" taps", app.count_for(Section::Taps).to_string(), th::CASK);
+    let (l5, v5) = stat(" taps", app.count_for(Section::Taps).to_string(), th.cask);
 
     let line = Line::from(vec![
         dot,
@@ -85,22 +86,23 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
         l5,
     ]);
     f.render_widget(
-        Paragraph::new(line).style(Style::default().bg(th::BAR_BG)),
+        Paragraph::new(line).style(Style::default().bg(th.bar_bg)),
         area,
     );
 }
 
 fn render_search_row(f: &mut Frame, app: &App, area: Rect) {
+    let th = app.theme;
     if app.installing {
         f.render_widget(
             Paragraph::new(format!(" install ▸ {}_ ", app.install_input))
-                .style(Style::default().fg(th::GOOD).bg(th::BAR_BG).bold()),
+                .style(Style::default().fg(th.good).bg(th.bar_bg).bold()),
             area,
         );
     } else if app.searching {
         f.render_widget(
             Paragraph::new(format!(" search ▸ /{}_ ", app.search))
-                .style(Style::default().fg(th::WARN).bg(th::BAR_BG).bold()),
+                .style(Style::default().fg(th.warn).bg(th.bar_bg).bold()),
             area,
         );
     } else {
@@ -110,37 +112,38 @@ fn render_search_row(f: &mut Frame, app: &App, area: Rect) {
             format!(" search ▸ /{} ", app.search)
         };
         f.render_widget(
-            Paragraph::new(text).style(Style::default().fg(th::DIM).bg(th::BAR_BG)),
+            Paragraph::new(text).style(Style::default().fg(th.dim).bg(th.bar_bg)),
             area,
         );
     }
 }
 
-fn section_color(section: Section) -> Color {
+fn section_color(th: &Theme, section: Section) -> Color {
     match section {
-        Section::Installed => th::GOOD,
-        Section::Outdated => th::WARN,
-        Section::Casks => th::CASK,
+        Section::Installed => th.good,
+        Section::Outdated => th.warn,
+        Section::Casks => th.cask,
         Section::Leaves => Color::LightBlue,
         Section::Catalog => Color::LightCyan,
         Section::Services => Color::White,
-        Section::Brewfile => th::GOOD,
+        Section::Brewfile => th.good,
         Section::Taps => Color::Gray,
     }
 }
 
 fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
+    let th = app.theme;
     let items: Vec<ListItem> = app
         .sections
         .iter()
         .map(|s| {
-            let color = section_color(*s);
+            let color = section_color(&th, *s);
             ListItem::new(Line::from(vec![
                 Span::styled("● ", Style::default().fg(color)),
                 Span::styled(s.title(), Style::default().fg(Color::White)),
                 Span::styled(
                     format!(" ({})", app.count_for(*s)),
-                    Style::default().fg(th::DIM),
+                    Style::default().fg(th.dim),
                 ),
             ]))
         })
@@ -148,15 +151,16 @@ fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
 
     let focused = app.panel == Panel::Sidebar;
     let sidebar = List::new(items)
-        .block(th::panel_block(" Sections ", focused))
+        .block(th.panel_block(" Sections ", focused))
         .highlight_symbol("▸ ")
-        .highlight_style(Style::default().bg(th::HL_BG).bold());
+        .highlight_style(Style::default().bg(th.hl_bg).bold());
     let mut state = ListState::default();
     state.select(Some(app.section_idx));
     f.render_stateful_widget(sidebar, area, &mut state);
 }
 
 fn render_table(f: &mut Frame, app: &App, area: Rect) {
+    let th = app.theme;
     let rows: Vec<Row> = app
         .filtered
         .iter()
@@ -164,35 +168,35 @@ fn render_table(f: &mut Frame, app: &App, area: Rect) {
         .map(|(i, p)| {
             let installed = p.installed_version.is_some() || p.service_status.is_some();
             let marker = if installed {
-                Span::styled("● ", Style::default().fg(th::GOOD))
+                Span::styled("● ", Style::default().fg(th.good))
             } else {
-                Span::styled("○ ", Style::default().fg(th::DIM))
+                Span::styled("○ ", Style::default().fg(th.dim))
             };
             let name_style = if p.outdated {
-                Style::default().fg(th::WARN).bold()
+                Style::default().fg(th.warn).bold()
             } else {
                 Style::default().fg(Color::White)
             };
             let name = Cell::from(Line::from(vec![marker, Span::styled(&p.name, name_style)]));
 
             let version_style = if p.outdated {
-                Style::default().fg(th::WARN)
+                Style::default().fg(th.warn)
             } else {
-                Style::default().fg(th::DIM)
+                Style::default().fg(th.dim)
             };
             let version = Cell::from(Span::styled(&p.version, version_style));
 
             let (tag, tag_style) = if p.cask {
-                ("[C]", th::CASK)
+                ("[C]", th.cask)
             } else if p.service_status.is_some() {
                 ("[S]", Color::White)
             } else {
-                ("[F]", th::GOOD)
+                ("[F]", th.good)
             };
             let kind = Cell::from(Span::styled(tag, Style::default().fg(tag_style)));
 
             let band = if i % 2 == 1 {
-                Style::default().bg(th::BAND_BG)
+                Style::default().bg(th.band_bg)
             } else {
                 Style::default()
             };
@@ -202,13 +206,13 @@ fn render_table(f: &mut Frame, app: &App, area: Rect) {
 
     // Breathing highlight for the selected row.
     let hl_bg = if (app.frame / 10).is_multiple_of(2) {
-        th::HL_BG
+        th.hl_bg
     } else {
-        th::HL_BG_DIM
+        th.hl_bg_dim
     };
 
     let focused = app.panel == Panel::List;
-    let section_tint = section_color(app.sections[app.section_idx]);
+    let section_tint = section_color(&th, app.sections[app.section_idx]);
     let table = Table::new(
         rows,
         [
@@ -220,13 +224,13 @@ fn render_table(f: &mut Frame, app: &App, area: Rect) {
     .header(
         Row::new(vec![" Name", "Version", "Type"]).style(
             Style::default()
-                .fg(th::ACCENT)
-                .bg(th::BAR_BG)
+                .fg(th.accent)
+                .bg(th.bar_bg)
                 .add_modifier(Modifier::BOLD),
         ),
     )
     .block(
-        th::panel_block(
+        th.panel_block(
             &format!(" {} ", app.sections[app.section_idx].title()),
             focused,
         )
@@ -247,74 +251,82 @@ fn render_table(f: &mut Frame, app: &App, area: Rect) {
     f.render_stateful_widget(table, area, &mut tstate);
 }
 
-fn kv_line<'a>(key: &'a str, value: Span<'a>, value_style: Style) -> Line<'a> {
+fn kv_line<'a>(th: &Theme, key: &'a str, value: Span<'a>, value_style: Style) -> Line<'a> {
     Line::from(vec![
-        Span::styled(key, Style::default().fg(th::DIM)),
+        Span::styled(key, Style::default().fg(th.dim)),
         Span::styled(value.content, value_style),
     ])
 }
 
 fn render_details(f: &mut Frame, app: &App, area: Rect) {
+    let th = app.theme;
     let mut lines: Vec<Line> = Vec::new();
     match app.selected() {
         Some(p) => {
             lines.push(kv_line(
+                &th,
                 "name        ",
                 Span::raw(p.name.clone()),
                 Style::default().fg(Color::White).bold(),
             ));
             lines.push(kv_line(
+                &th,
                 "type        ",
                 Span::raw(if p.cask { "cask" } else { "formula" }),
-                Style::default().fg(if p.cask { th::CASK } else { th::GOOD }),
+                Style::default().fg(if p.cask { th.cask } else { th.good }),
             ));
             lines.push(kv_line(
+                &th,
                 "version     ",
                 Span::raw(p.version.clone()),
                 Style::default().fg(Color::White),
             ));
             let installed_style = if p.installed_version.is_some() {
-                Style::default().fg(th::GOOD)
+                Style::default().fg(th.good)
             } else {
-                Style::default().fg(th::DIM)
+                Style::default().fg(th.dim)
             };
             lines.push(kv_line(
+                &th,
                 "installed   ",
                 Span::raw(p.installed_version.clone().unwrap_or_else(|| "-".into())),
                 installed_style,
             ));
             let (state, style) = if p.outdated {
-                ("outdated", Style::default().fg(th::WARN))
+                ("outdated", Style::default().fg(th.warn))
             } else {
-                ("current", Style::default().fg(th::GOOD))
+                ("current", Style::default().fg(th.good))
             };
-            lines.push(kv_line("state       ", Span::raw(state), style));
+            lines.push(kv_line(&th, "state       ", Span::raw(state), style));
             if p.pinned {
                 lines.push(kv_line(
+                    &th,
                     "pinned      ",
                     Span::raw("yes"),
-                    Style::default().fg(th::WARN),
+                    Style::default().fg(th.warn),
                 ));
             }
             if let Some(st) = &p.service_status {
                 lines.push(kv_line(
+                    &th,
                     "service     ",
                     Span::raw(format!("{st}  (s toggles)")),
                     if st == "started" {
-                        Style::default().fg(th::GOOD)
+                        Style::default().fg(th.good)
                     } else {
-                        Style::default().fg(th::DIM)
+                        Style::default().fg(th.dim)
                     },
                 ));
             }
             if let Some(v) = app.vulns.get(&p.name) {
                 lines.push(kv_line(
+                    &th,
                     "vulns       ",
                     Span::raw(v.len().to_string()),
                     if v.is_empty() {
-                        Style::default().fg(th::GOOD)
+                        Style::default().fg(th.good)
                     } else {
-                        Style::default().fg(th::BAD).bold()
+                        Style::default().fg(th.bad).bold()
                     },
                 ));
             }
@@ -326,23 +338,24 @@ fn render_details(f: &mut Frame, app: &App, area: Rect) {
         }
         None => lines.push(Line::from(Span::styled(
             "no selection",
-            Style::default().fg(th::DIM),
+            Style::default().fg(th.dim),
         ))),
     }
 
     let details = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(th::panel_block(" Details ", false));
+        .block(th.panel_block(" Details ", false));
     f.render_widget(details, area);
 }
 
 fn render_output(f: &mut Frame, app: &App, area: Rect) {
+    let th = app.theme;
     let inner_height = area.height.saturating_sub(2) as usize;
     let shown: Vec<Line> = app
         .output
         .iter()
         .skip(app.output.len().saturating_sub(inner_height))
-        .map(|l| Line::from(Span::styled(l.clone(), th::output_line(l))))
+        .map(|l| Line::from(Span::styled(l.clone(), th.output_line(l))))
         .collect();
 
     let title = if app.cmd_rx.is_some() {
@@ -350,7 +363,7 @@ fn render_output(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(" Output "),
             Span::styled(
                 spinner(app).to_string(),
-                Style::default().fg(th::pulse(app.frame)).bold(),
+                Style::default().fg(th.pulse(app.frame)).bold(),
             ),
             Span::raw(" "),
         ])
@@ -360,15 +373,16 @@ fn render_output(f: &mut Frame, app: &App, area: Rect) {
     let output = Paragraph::new(shown).block(
         Block::default()
             .title(title)
-            .title_style(th::title())
+            .title_style(th.title())
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(th::DIM)),
+            .border_style(Style::default().fg(th.dim)),
     );
     f.render_widget(output, area);
 }
 
 fn render_footer(f: &mut Frame, app: &App, area: Rect) {
+    let th = app.theme;
     if app.load_rx.is_some() || app.catalog_rx.is_some() {
         let what = if app.load_rx.is_some() {
             "loading Homebrew data"
@@ -377,7 +391,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         };
         f.render_widget(
             Paragraph::new(format!("{} {what}...", spinner(app)))
-                .style(Style::default().fg(th::ACCENT)),
+                .style(Style::default().fg(th.accent)),
             area,
         );
         return;
@@ -392,6 +406,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         ("r", "remove"),
         ("A", "all"),
         ("x", "menu"),
+        ("t", "theme"),
         ("?", "help"),
         ("q", "quit"),
     ];
@@ -399,8 +414,8 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         .iter()
         .flat_map(|(k, d)| {
             vec![
-                Span::styled(format!(" {k} "), th::key_chip(k)),
-                Span::styled(format!(" {d}  "), Style::default().fg(th::DIM)),
+                Span::styled(format!(" {k} "), th.key_chip(k)),
+                Span::styled(format!(" {d}  "), Style::default().fg(th.dim)),
             ]
         })
         .collect();
@@ -414,6 +429,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             ("j/k", "nav"),
             ("/", "search"),
             ("x", "menu"),
+            ("t", "theme"),
             ("?", "help"),
             ("q", "quit"),
         ];
@@ -421,8 +437,8 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             .iter()
             .flat_map(|(k, d)| {
                 vec![
-                    Span::styled(format!(" {k} "), th::key_chip(k)),
-                    Span::styled(format!(" {d}  "), Style::default().fg(th::DIM)),
+                    Span::styled(format!(" {k} "), th.key_chip(k)),
+                    Span::styled(format!(" {d}  "), Style::default().fg(th.dim)),
                 ]
             })
             .collect();
@@ -431,14 +447,15 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_overlays(f: &mut Frame, app: &App) {
+    let th = app.theme;
     if let Some(modal) = &app.modal {
         let area = centered_rect(52, 18, f.area());
         f.render_widget(Clear, area);
         f.render_widget(
             Paragraph::new(modal.text.clone())
-                .style(Style::default().fg(Color::White).bg(th::BAR_BG))
+                .style(Style::default().fg(Color::White).bg(th.bar_bg))
                 .wrap(Wrap { trim: false })
-                .block(th::panel_block(" Confirm ", true)),
+                .block(th.panel_block(" Confirm ", true)),
             area,
         );
     }
@@ -458,7 +475,7 @@ fn render_overlays(f: &mut Frame, app: &App) {
                 if i == menu_idx {
                     Line::from(Span::styled(
                         format!(" ▸ {it} "),
-                        Style::default().fg(Color::Black).bg(th::ACCENT).bold(),
+                        Style::default().fg(Color::Black).bg(th.accent).bold(),
                     ))
                 } else {
                     Line::from(Span::styled(
@@ -472,11 +489,13 @@ fn render_overlays(f: &mut Frame, app: &App) {
         f.render_widget(Clear, area);
         f.render_widget(
             Paragraph::new(lines)
-                .style(Style::default().bg(th::BAR_BG))
-                .block(th::panel_block(" Actions ", true)),
+                .style(Style::default().bg(th.bar_bg))
+                .block(th.panel_block(" Actions ", true)),
             area,
         );
     }
+
+    render_theme_picker(f, app);
 
     if app.help {
         let help = crate::input::help_text();
@@ -488,13 +507,13 @@ fn render_overlays(f: &mut Frame, app: &App) {
                 } else if l.starts_with("lazybrew") {
                     Line::from(Span::styled(
                         l,
-                        Style::default().fg(th::ACCENT).add_modifier(Modifier::BOLD),
+                        Style::default().fg(th.accent).add_modifier(Modifier::BOLD),
                     ))
                 } else {
                     let key = l.get(..16).unwrap_or(l);
                     let rest = l.get(16..).unwrap_or("");
                     Line::from(vec![
-                        Span::styled(format!(" {key}"), th::key_chip(key.trim())),
+                        Span::styled(format!(" {key}"), th.key_chip(key.trim())),
                         Span::styled(rest, Style::default().fg(Color::Gray)),
                     ])
                 }
@@ -504,11 +523,61 @@ fn render_overlays(f: &mut Frame, app: &App) {
         f.render_widget(Clear, area);
         f.render_widget(
             Paragraph::new(lines)
-                .style(Style::default().bg(th::BAR_BG))
-                .block(th::panel_block(" Help ", true)),
+                .style(Style::default().bg(th.bar_bg))
+                .block(th.panel_block(" Help ", true)),
             area,
         );
     }
+}
+
+fn render_theme_picker(f: &mut Frame, app: &App) {
+    let Some(pick) = app.theme_picker else {
+        return;
+    };
+    let th = app.theme;
+    let lines: Vec<Line> = THEMES
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let marker = if i == pick {
+                Span::styled("▸ ", Style::default().fg(th.accent).bold())
+            } else {
+                Span::raw("  ")
+            };
+            let mut name = Span::styled(
+                t.name.to_string(),
+                if i == pick {
+                    Style::default().fg(Color::White).bold()
+                } else {
+                    Style::default().fg(Color::Gray)
+                },
+            );
+            if t.name == app.theme.name {
+                name = Span::styled(
+                    format!("{}  ✓", t.name),
+                    Style::default().fg(th.good).bold(),
+                );
+            }
+            Line::from(vec![
+                marker,
+                Span::styled("■ ", Style::default().fg(t.accent)),
+                Span::styled("■ ", Style::default().fg(t.good)),
+                Span::styled("■ ", Style::default().fg(t.warn)),
+                Span::styled("■ ", Style::default().fg(t.bad)),
+                Span::raw(" "),
+                name,
+            ])
+        })
+        .collect();
+
+    let area = centered_rect(42, 56, f.area());
+    f.render_widget(Clear, area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .style(Style::default().bg(th.bar_bg))
+            .block(th.panel_block(" Theme — j/k + enter, esc ", true)),
+        area,
+    );
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
@@ -585,6 +654,8 @@ mod tests {
             load_rx: None,
             catalog_rx: None,
             help: false,
+            theme: crate::theme::DEFAULT,
+            theme_picker: None,
         };
         app.apply_section();
         app
@@ -604,8 +675,29 @@ mod tests {
     }
 
     #[test]
+    fn theme_picker_lists_all_themes() {
+        let mut app = test_app();
+        app.theme_picker = Some(1);
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| render(f, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        for t in crate::theme::THEMES {
+            assert!(
+                text.contains(t.name),
+                "missing theme {} in {}",
+                t.name,
+                text
+            );
+        }
+        assert!(text.contains("✓"), "current theme should be checkmarked");
+    }
+
+    #[test]
     fn selected_row_is_highlighted() {
         let app = test_app();
+        let th = app.theme;
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| render(f, &app)).unwrap();
@@ -613,9 +705,9 @@ mod tests {
         // Row 1 (header) and row 2 (selected) should differ in background.
         let header_bg = buf[(30, 3)].bg;
         let sel_bg = buf[(30, 4)].bg;
-        assert_eq!(header_bg, th::BAR_BG, "table header band");
+        assert_eq!(header_bg, th.bar_bg, "table header band");
         assert!(
-            sel_bg == th::HL_BG || sel_bg == th::HL_BG_DIM,
+            sel_bg == th.hl_bg || sel_bg == th.hl_bg_dim,
             "selected row bg"
         );
     }
@@ -678,6 +770,8 @@ mod preview {
             load_rx: None,
             catalog_rx: None,
             help: false,
+            theme: crate::theme::DEFAULT,
+            theme_picker: None,
         };
         app.apply_section();
         let backend = TestBackend::new(100, 30);

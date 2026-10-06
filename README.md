@@ -22,7 +22,11 @@ services, taps, and Brewfiles — all without leaving the terminal.
 - **Vulnerability scan** (`brew vulns`) with cached results shown in details
 - Pin/unpin, info, deps via the `x` action menu
 - Brewfile export via `brew bundle dump` (`e`)
-- Help overlay (`?`), animated loading and command spinners
+- **Theme switcher** (`t`): 6 built-in themes — Lazybrew, btop, Dracula,
+  Nord, Gruvbox, Solarized — with live preview swatches; the choice is
+  persisted to the XDG config dir
+- Help overlay (`?`), animated loading and command spinners, pulsing
+  busy-state cues, per-line output colorization
 
 ## Keybindings
 
@@ -42,6 +46,7 @@ services, taps, and Brewfiles — all without leaving the terminal.
 | `s` | start/stop service (Services section) |
 | `v` | vulnerability scan (formulae) |
 | `x` | action menu (info/deps/pin) |
+| `t` | theme picker (6 built-in themes, persisted) |
 | `I` / `R` | install all / remove all (Brewfile section) |
 | `e` | export Brewfile to `~/Brewfile` |
 | `?` | help |

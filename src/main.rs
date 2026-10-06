@@ -106,6 +106,8 @@ fn run_app(
         frame: 0,
         load_rx: Some(load_rx),
         help: false,
+        theme: theme::load(),
+        theme_picker: None,
     };
     if let Some(path) = &brewfile_path
         && let Ok(entries) = brewfile::load(path)

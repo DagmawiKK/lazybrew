@@ -16,6 +16,29 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
         return KeyFlow::Continue;
     }
 
+    if let Some(pick) = app.theme_picker {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('t') => app.theme_picker = None,
+            KeyCode::Down | KeyCode::Char('j') => {
+                app.theme_picker = Some((pick + 1) % crate::theme::THEMES.len())
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                app.theme_picker = Some(
+                    pick.checked_sub(1)
+                        .unwrap_or(crate::theme::THEMES.len() - 1),
+                )
+            }
+            KeyCode::Enter => {
+                let chosen = crate::theme::THEMES[pick];
+                app.theme = chosen;
+                app.theme_picker = None;
+                crate::theme::save(&chosen);
+            }
+            _ => {}
+        }
+        return KeyFlow::Continue;
+    }
+
     if let Some(menu_idx) = app.menu {
         match key.code {
             KeyCode::Esc | KeyCode::Char('x') => app.menu = None,
@@ -158,6 +181,9 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
                 let verb = if running { "stop" } else { "start" };
                 spawn_brew(app, &["services".into(), verb.into(), p.name]);
             }
+        }
+        KeyCode::Char('t') => {
+            app.theme_picker = Some(crate::theme::index_of(&app.theme));
         }
         KeyCode::Char('x') => {
             if app.selected().is_some() {
@@ -326,6 +352,7 @@ pub fn help_text() -> String {
         ("I/R", "install/remove all (Brewfile section)"),
         ("i/r", "tap/untap (Taps section)"),
         ("x", "action menu (info/deps/pin)"),
+        ("t", "theme picker"),
         ("e", "export Brewfile to ~/Brewfile"),
         ("?", "this help"),
         ("q", "quit"),
