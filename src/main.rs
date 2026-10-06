@@ -17,6 +17,8 @@ enum CmdEvent {
     Done(bool),
 }
 
+type LoadResult = (Vec<Package>, Vec<String>);
+
 /// Sections shown in the lazygit-style left sidebar.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Section {
@@ -65,6 +67,14 @@ struct App {
     cmd_rx: Option<mpsc::Receiver<CmdEvent>>,
     modal: Option<Modal>,
     menu: Option<usize>,
+    frame: usize,
+    load_rx: Option<mpsc::Receiver<LoadResult>>,
+}
+
+const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+fn spinner(app: &App) -> char {
+    SPINNER[app.frame % SPINNER.len()]
 }
 
 struct Modal {
@@ -128,27 +138,26 @@ fn main() -> Result<()> {
     res
 }
 
+fn spawn_load_thread() -> mpsc::Receiver<LoadResult> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let pkgs = brew::load_installed().unwrap_or_default();
+        let leaves = brew::load_leaves();
+        let _ = tx.send((pkgs, leaves));
+    });
+    rx
+}
+
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
-    let packages = brew::load_installed().unwrap_or_default();
-    let leaves: Vec<String> = std::process::Command::new("brew")
-        .arg("leaves")
-        .output()
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .map(|l| l.trim().to_string())
-                .collect()
-        })
-        .unwrap_or_default();
+    let load_rx = spawn_load_thread();
 
     let mut app = App {
-        packages,
+        packages: Vec::new(),
         filtered: Vec::new(),
         section_idx: 0,
         list_idx: 0,
         panel: Panel::Sidebar,
-        leaves,
+        leaves: Vec::new(),
         search: String::new(),
         searching: false,
         installing: false,
@@ -157,11 +166,27 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         cmd_rx: None,
         modal: None,
         menu: None,
+        frame: 0,
+        load_rx: Some(load_rx),
     };
     app.apply_section();
 
     loop {
+        app.frame = app.frame.wrapping_add(1);
         terminal.draw(|f| render(f, &app))?;
+
+        let mut loaded = None;
+        if let Some(rx) = &app.load_rx {
+            if let Ok(res) = rx.try_recv() {
+                loaded = Some(res);
+            }
+        }
+        if let Some((pkgs, leaves)) = loaded {
+            app.packages = pkgs;
+            app.leaves = leaves;
+            app.apply_section();
+            app.load_rx = None;
+        }
 
         // Drain background command events
         let mut finished = false;
@@ -182,10 +207,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         }
         if finished {
             app.cmd_rx = None;
-            if let Ok(pkgs) = brew::load_installed() {
-                app.packages = pkgs;
-                app.apply_section();
-            }
+            app.load_rx = Some(spawn_load_thread());
         }
 
         if event::poll(Duration::from_millis(100))?
@@ -516,8 +538,13 @@ fn render(f: &mut Frame, app: &App) {
         let start = app.output.len().saturating_sub(6);
         app.output[start..].join("\n")
     };
-    let output =
-        Paragraph::new(output_text).block(Block::default().title(" Output ").borders(Borders::ALL));
+    let output_title = if app.cmd_rx.is_some() {
+        format!(" Output {} ", spinner(app))
+    } else {
+        " Output ".to_string()
+    };
+    let output = Paragraph::new(output_text)
+        .block(Block::default().title(output_title).borders(Borders::ALL));
     f.render_widget(output, chunks[1]);
 
     // Sidebar
@@ -632,8 +659,12 @@ fn render(f: &mut Frame, app: &App) {
     f.render_widget(details, body[2]);
 
     // Footer
-    let footer = Paragraph::new("j/k nav | h/l switch | / search | i install | u upgrade | r remove | U update | esc clear | q quit")
-        .style(Style::default().fg(Color::Gray));
+    let footer_text = if app.load_rx.is_some() {
+        format!("{} loading Homebrew data...", spinner(app))
+    } else {
+        "j/k nav | h/l switch | / search | i install | u upgrade | r remove | U update | x menu | esc clear | q quit".to_string()
+    };
+    let footer = Paragraph::new(footer_text).style(Style::default().fg(Color::Gray));
     f.render_widget(footer, chunks[2]);
 
     if let Some(modal) = &app.modal {

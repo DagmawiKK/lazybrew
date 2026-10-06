@@ -147,6 +147,22 @@ pub fn load_installed() -> Result<Vec<Package>> {
     Ok(pkgs)
 }
 
+/// Names of top-level formulae installed on request.
+pub fn load_leaves() -> Vec<String> {
+    std::process::Command::new("brew")
+        .arg("leaves")
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
