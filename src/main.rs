@@ -5,7 +5,7 @@ use brew::Package;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{prelude::*, widgets::*};
 use std::io;
@@ -64,6 +64,7 @@ struct App {
     output: Vec<String>,
     cmd_rx: Option<mpsc::Receiver<CmdEvent>>,
     modal: Option<Modal>,
+    menu: Option<usize>,
 }
 
 struct Modal {
@@ -104,12 +105,7 @@ impl App {
     fn section_counts(&self) -> [usize; 4] {
         let outdated = self.packages.iter().filter(|p| p.outdated).count();
         let casks = self.packages.iter().filter(|p| p.cask).count();
-        [
-            self.packages.len(),
-            outdated,
-            casks,
-            self.leaves.len(),
-        ]
+        [self.packages.len(), outdated, casks, self.leaves.len()]
     }
 
     fn selected(&self) -> Option<&Package> {
@@ -160,6 +156,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         output: Vec::new(),
         cmd_rx: None,
         modal: None,
+        menu: None,
     };
     app.apply_section();
 
@@ -191,8 +188,48 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
             }
         }
 
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+        {
+            if let Some(menu_idx) = app.menu {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('x') => app.menu = None,
+                    KeyCode::Down | KeyCode::Char('j') => app.menu = Some((menu_idx + 1) % 5),
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        app.menu = Some(menu_idx.checked_sub(1).unwrap_or(4))
+                    }
+                    KeyCode::Enter => {
+                        app.menu = None;
+                        run_menu_action(&mut app, menu_idx);
+                    }
+                    KeyCode::Char(c) => match c {
+                        'u' => {
+                            app.menu = None;
+                            run_menu_action(&mut app, 0);
+                        }
+                        'r' => {
+                            app.menu = None;
+                            run_menu_action(&mut app, 1);
+                        }
+                        'i' => {
+                            app.menu = None;
+                            run_menu_action(&mut app, 2);
+                        }
+                        'd' => {
+                            app.menu = None;
+                            run_menu_action(&mut app, 3);
+                        }
+                        'p' => {
+                            app.menu = None;
+                            run_menu_action(&mut app, 4);
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+                continue;
+            }
+
             if let Some(modal) = app.modal.take() {
                 match key.code {
                     KeyCode::Char('y') | KeyCode::Enter => {
@@ -253,6 +290,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
             match key.code {
                 KeyCode::Char('/') => {
                     app.searching = true;
+                }
+                KeyCode::Char('x') => {
+                    if app.selected().is_some() {
+                        app.menu = Some(0);
+                    }
                 }
                 KeyCode::Char('u') => {
                     if let Some(p) = app.selected() {
@@ -346,12 +388,38 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                     }
                 }
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    return Ok(())
+                    return Ok(());
                 }
                 _ => {}
             }
-            }
         }
+    }
+}
+
+fn run_menu_action(app: &mut App, idx: usize) {
+    let Some(p) = app.selected().cloned() else {
+        return;
+    };
+    match idx {
+        0 => {
+            app.modal = Some(Modal {
+                text: format!("Upgrade '{}'? (y/n)", p.name),
+                confirm: ModalAction::Upgrade(p.name, p.cask),
+            });
+        }
+        1 => {
+            app.modal = Some(Modal {
+                text: format!("Remove '{}'? (y/n)", p.name),
+                confirm: ModalAction::Remove(p.name, p.cask),
+            });
+        }
+        2 => spawn_brew(app, &["info".into(), p.name]),
+        3 => spawn_brew(app, &["deps".into(), p.name]),
+        4 => {
+            let verb = if p.pinned { "unpin" } else { "pin" };
+            spawn_brew(app, &[verb.into(), p.name]);
+        }
+        _ => {}
     }
 }
 
@@ -423,16 +491,23 @@ fn spawn_brew(app: &mut App, args: &[String]) {
     app.cmd_rx = Some(rx);
 }
 
-
 fn render(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(8), Constraint::Length(1)])
+        .constraints([
+            Constraint::Min(3),
+            Constraint::Length(8),
+            Constraint::Length(1),
+        ])
         .split(f.area());
 
     let body = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(24), Constraint::Percentage(55), Constraint::Percentage(25)])
+        .constraints([
+            Constraint::Length(24),
+            Constraint::Percentage(55),
+            Constraint::Percentage(25),
+        ])
         .split(chunks[0]);
 
     let output_text = if app.output.is_empty() {
@@ -441,11 +516,8 @@ fn render(f: &mut Frame, app: &App) {
         let start = app.output.len().saturating_sub(6);
         app.output[start..].join("\n")
     };
-    let output = Paragraph::new(output_text).block(
-        Block::default()
-            .title(" Output ")
-            .borders(Borders::ALL),
-    );
+    let output =
+        Paragraph::new(output_text).block(Block::default().title(" Output ").borders(Borders::ALL));
     f.render_widget(output, chunks[1]);
 
     // Sidebar
@@ -512,24 +584,32 @@ fn render(f: &mut Frame, app: &App) {
             ])
         })
         .collect();
-    let table = Table::new(rows, [Constraint::Min(20), Constraint::Length(14), Constraint::Length(6)])
-        .header(
-            Row::new(vec!["Name", "Version", "Type"])
-                .style(Style::default().bold().underlined()),
-        )
-        .block(
-            Block::default()
-                .title(format!(" {} ", Section::ALL[app.section_idx].title()))
-                .borders(Borders::ALL)
-                .border_style(if app.panel == Panel::List {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default()
-                }),
-        )
-        .row_highlight_style(Style::default().bg(Color::DarkGray));
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Min(20),
+            Constraint::Length(14),
+            Constraint::Length(6),
+        ],
+    )
+    .header(Row::new(vec!["Name", "Version", "Type"]).style(Style::default().bold().underlined()))
+    .block(
+        Block::default()
+            .title(format!(" {} ", Section::ALL[app.section_idx].title()))
+            .borders(Borders::ALL)
+            .border_style(if app.panel == Panel::List {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            }),
+    )
+    .row_highlight_style(Style::default().bg(Color::DarkGray));
     let mut tstate = TableState::default();
-    tstate.select(if app.filtered.is_empty() { None } else { Some(app.list_idx) });
+    tstate.select(if app.filtered.is_empty() {
+        None
+    } else {
+        Some(app.list_idx)
+    });
     f.render_stateful_widget(table, list_area[1], &mut tstate);
 
     // Details

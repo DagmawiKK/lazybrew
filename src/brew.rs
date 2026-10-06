@@ -117,8 +117,7 @@ pub fn load_installed() -> Result<Vec<Package>> {
     let mut pkgs = Vec::new();
     for f in installed.formulae {
         let is_outdated = outdated.contains_key(&(false, f.name.clone()))
-            || f
-                .full_name
+            || f.full_name
                 .as_ref()
                 .map(|fn_| outdated.contains_key(&(false, fn_.clone())))
                 .unwrap_or(false);
