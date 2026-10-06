@@ -178,10 +178,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         terminal.draw(|f| render(f, &app))?;
 
         let mut loaded = None;
-        if let Some(rx) = &app.load_rx {
-            if let Ok(res) = rx.try_recv() {
-                loaded = Some(res);
-            }
+        if let Some(rx) = &app.load_rx
+            && let Ok(res) = rx.try_recv()
+        {
+            loaded = Some(res);
         }
         if let Some((pkgs, leaves)) = loaded {
             app.packages = pkgs;
