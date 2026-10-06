@@ -10,6 +10,10 @@ use ratatui::widgets::{Block, BorderType, Borders};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     pub name: &'static str,
+    /// Full-frame background.
+    pub bg: Color,
+    /// Default text color on [`bg`].
+    pub fg: Color,
     /// Title / accent color.
     pub accent: Color,
     /// Installed / success.
@@ -99,6 +103,8 @@ impl Theme {
 pub const THEMES: [Theme; 6] = [
     Theme {
         name: "Lazybrew",
+        bg: Color::Rgb(13, 17, 23),
+        fg: Color::Rgb(215, 220, 226),
         accent: Color::LightCyan,
         good: Color::LightGreen,
         warn: Color::LightYellow,
@@ -113,6 +119,8 @@ pub const THEMES: [Theme; 6] = [
     },
     Theme {
         name: "btop",
+        bg: Color::Rgb(16, 21, 30),
+        fg: Color::Rgb(205, 216, 228),
         accent: Color::Rgb(140, 196, 254),
         good: Color::Rgb(169, 216, 140),
         warn: Color::Rgb(235, 203, 139),
@@ -127,6 +135,8 @@ pub const THEMES: [Theme; 6] = [
     },
     Theme {
         name: "Dracula",
+        bg: Color::Rgb(40, 42, 54),
+        fg: Color::Rgb(248, 248, 242),
         accent: Color::Rgb(189, 147, 249),
         good: Color::Rgb(80, 250, 123),
         warn: Color::Rgb(241, 250, 140),
@@ -136,11 +146,13 @@ pub const THEMES: [Theme; 6] = [
         key_bg: Color::Rgb(55, 57, 73),
         hl_bg: Color::Rgb(68, 71, 90),
         hl_bg_dim: Color::Rgb(58, 61, 80),
-        bar_bg: Color::Rgb(40, 42, 54),
+        bar_bg: Color::Rgb(48, 50, 64),
         band_bg: Color::Rgb(33, 34, 44),
     },
     Theme {
         name: "Nord",
+        bg: Color::Rgb(46, 52, 64),
+        fg: Color::Rgb(216, 222, 233),
         accent: Color::Rgb(136, 192, 208),
         good: Color::Rgb(163, 190, 140),
         warn: Color::Rgb(235, 203, 139),
@@ -149,12 +161,14 @@ pub const THEMES: [Theme; 6] = [
         dim: Color::Rgb(76, 86, 106),
         key_bg: Color::Rgb(59, 66, 82),
         hl_bg: Color::Rgb(67, 76, 94),
-        hl_bg_dim: Color::Rgb(58, 66, 82),
-        bar_bg: Color::Rgb(46, 52, 64),
-        band_bg: Color::Rgb(38, 44, 56),
+        hl_bg_dim: Color::Rgb(61, 70, 86),
+        bar_bg: Color::Rgb(59, 66, 82),
+        band_bg: Color::Rgb(52, 58, 71),
     },
     Theme {
         name: "Gruvbox",
+        bg: Color::Rgb(40, 40, 40),
+        fg: Color::Rgb(235, 221, 199),
         accent: Color::Rgb(131, 165, 152),
         good: Color::Rgb(184, 187, 38),
         warn: Color::Rgb(250, 189, 47),
@@ -164,11 +178,13 @@ pub const THEMES: [Theme; 6] = [
         key_bg: Color::Rgb(60, 56, 54),
         hl_bg: Color::Rgb(80, 73, 66),
         hl_bg_dim: Color::Rgb(68, 62, 57),
-        bar_bg: Color::Rgb(40, 40, 40),
-        band_bg: Color::Rgb(33, 33, 33),
+        bar_bg: Color::Rgb(60, 56, 54),
+        band_bg: Color::Rgb(46, 43, 42),
     },
     Theme {
         name: "Solarized",
+        bg: Color::Rgb(0, 43, 54),
+        fg: Color::Rgb(147, 161, 161),
         accent: Color::Rgb(38, 139, 210),
         good: Color::Rgb(133, 153, 0),
         warn: Color::Rgb(181, 137, 0),
@@ -179,7 +195,7 @@ pub const THEMES: [Theme; 6] = [
         hl_bg: Color::Rgb(0, 74, 92),
         hl_bg_dim: Color::Rgb(0, 62, 78),
         bar_bg: Color::Rgb(0, 43, 54),
-        band_bg: Color::Rgb(7, 54, 66),
+        band_bg: Color::Rgb(0, 50, 63),
     },
 ];
 

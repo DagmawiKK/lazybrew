@@ -5,6 +5,14 @@ use crate::theme::{THEMES, Theme};
 use ratatui::{prelude::*, widgets::*};
 
 pub fn render(f: &mut Frame, app: &App) {
+    let th = app.theme;
+    // Paint the whole frame with the theme background so the UI never
+    // inherits an unexpected terminal background.
+    f.render_widget(
+        Block::default().style(Style::default().bg(th.bg).fg(th.fg)),
+        f.area(),
+    );
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -44,7 +52,7 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
         app.frame
     };
     let dot = Span::styled("● ", Style::default().fg(th.pulse(pulse_frame)));
-    let title = Span::styled("lazybrew", Style::default().fg(Color::White).bold());
+    let title = Span::styled("lazybrew", Style::default().fg(th.fg).bold());
     let sep = Span::styled(" │ ", Style::default().fg(th.dim));
     let stat = |label: &'static str, value: String, color: Color| {
         (
@@ -52,7 +60,7 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(value, Style::default().fg(color).bold()),
         )
     };
-    let (l1, v1) = stat(" pkgs", app.packages.len().to_string(), Color::White);
+    let (l1, v1) = stat(" pkgs", app.packages.len().to_string(), th.fg);
     let (l2, v2) = stat(
         " outdated",
         app.count_for(Section::Outdated).to_string(),
@@ -125,9 +133,9 @@ fn section_color(th: &Theme, section: Section) -> Color {
         Section::Casks => th.cask,
         Section::Leaves => Color::LightBlue,
         Section::Catalog => Color::LightCyan,
-        Section::Services => Color::White,
+        Section::Services => th.fg,
         Section::Brewfile => th.good,
-        Section::Taps => Color::Gray,
+        Section::Taps => th.dim,
     }
 }
 
@@ -140,7 +148,7 @@ fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
             let color = section_color(&th, *s);
             ListItem::new(Line::from(vec![
                 Span::styled("● ", Style::default().fg(color)),
-                Span::styled(s.title(), Style::default().fg(Color::White)),
+                Span::styled(s.title(), Style::default().fg(th.fg)),
                 Span::styled(
                     format!(" ({})", app.count_for(*s)),
                     Style::default().fg(th.dim),
@@ -175,7 +183,7 @@ fn render_table(f: &mut Frame, app: &App, area: Rect) {
             let name_style = if p.outdated {
                 Style::default().fg(th.warn).bold()
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(th.fg)
             };
             let name = Cell::from(Line::from(vec![marker, Span::styled(&p.name, name_style)]));
 
@@ -189,7 +197,7 @@ fn render_table(f: &mut Frame, app: &App, area: Rect) {
             let (tag, tag_style) = if p.cask {
                 ("[C]", th.cask)
             } else if p.service_status.is_some() {
-                ("[S]", Color::White)
+                ("[S]", th.fg)
             } else {
                 ("[F]", th.good)
             };
@@ -267,7 +275,7 @@ fn render_details(f: &mut Frame, app: &App, area: Rect) {
                 &th,
                 "name        ",
                 Span::raw(p.name.clone()),
-                Style::default().fg(Color::White).bold(),
+                Style::default().fg(th.fg).bold(),
             ));
             lines.push(kv_line(
                 &th,
@@ -279,7 +287,7 @@ fn render_details(f: &mut Frame, app: &App, area: Rect) {
                 &th,
                 "version     ",
                 Span::raw(p.version.clone()),
-                Style::default().fg(Color::White),
+                Style::default().fg(th.fg),
             ));
             let installed_style = if p.installed_version.is_some() {
                 Style::default().fg(th.good)
@@ -333,7 +341,7 @@ fn render_details(f: &mut Frame, app: &App, area: Rect) {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 p.desc.clone(),
-                Style::default().fg(Color::Gray),
+                Style::default().fg(th.dim),
             )));
         }
         None => lines.push(Line::from(Span::styled(
@@ -453,7 +461,7 @@ fn render_overlays(f: &mut Frame, app: &App) {
         f.render_widget(Clear, area);
         f.render_widget(
             Paragraph::new(modal.text.clone())
-                .style(Style::default().fg(Color::White).bg(th.bar_bg))
+                .style(Style::default().fg(th.fg).bg(th.bar_bg))
                 .wrap(Wrap { trim: false })
                 .block(th.panel_block(" Confirm ", true)),
             area,
@@ -475,12 +483,12 @@ fn render_overlays(f: &mut Frame, app: &App) {
                 if i == menu_idx {
                     Line::from(Span::styled(
                         format!(" ▸ {it} "),
-                        Style::default().fg(Color::Black).bg(th.accent).bold(),
+                        Style::default().fg(th.bg).bg(th.accent).bold(),
                     ))
                 } else {
                     Line::from(Span::styled(
                         format!("   {it} "),
-                        Style::default().fg(Color::Gray),
+                        Style::default().fg(th.dim),
                     ))
                 }
             })
@@ -514,7 +522,7 @@ fn render_overlays(f: &mut Frame, app: &App) {
                     let rest = l.get(16..).unwrap_or("");
                     Line::from(vec![
                         Span::styled(format!(" {key}"), th.key_chip(key.trim())),
-                        Span::styled(rest, Style::default().fg(Color::Gray)),
+                        Span::styled(rest, Style::default().fg(th.dim)),
                     ])
                 }
             })
@@ -547,9 +555,9 @@ fn render_theme_picker(f: &mut Frame, app: &App) {
             let mut name = Span::styled(
                 t.name.to_string(),
                 if i == pick {
-                    Style::default().fg(Color::White).bold()
+                    Style::default().fg(th.fg).bold()
                 } else {
-                    Style::default().fg(Color::Gray)
+                    Style::default().fg(th.dim)
                 },
             );
             if t.name == app.theme.name {
@@ -672,6 +680,14 @@ mod tests {
         assert!(text.contains("Sections"), "missing Sections: {}", text);
         assert!(text.contains("git"), "missing git");
         assert!(text.contains("Installed"), "missing Installed");
+        // The theme background must cover the whole frame (no terminal bg leak).
+        let th = app.theme;
+        assert_eq!(
+            buf[(100, 15)].bg,
+            th.bg,
+            "blank cell keeps theme background"
+        );
+        assert_eq!(buf[(0, 0)].bg, th.bar_bg, "header band uses bar background");
     }
 
     #[test]
