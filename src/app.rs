@@ -8,7 +8,7 @@ pub enum CmdEvent {
     Done(bool),
 }
 
-pub type LoadResult = (Vec<Package>, Vec<String>, Vec<Package>);
+pub type LoadResult = (Vec<Package>, Vec<String>);
 
 /// Sections shown in the lazygit-style left sidebar.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -63,6 +63,7 @@ pub struct App {
     pub menu: Option<usize>,
     pub frame: usize,
     pub load_rx: Option<mpsc::Receiver<LoadResult>>,
+    pub catalog_rx: Option<mpsc::Receiver<Vec<Package>>>,
     pub catalog: Vec<Package>,
     pub help: bool,
 }
@@ -83,6 +84,9 @@ pub enum ModalAction {
     Remove(String, bool),
     Install(String),
     Update,
+    UpgradeAll,
+    Cleanup,
+    Autoremove,
 }
 
 impl App {
@@ -134,8 +138,18 @@ pub fn spawn_load_thread() -> mpsc::Receiver<LoadResult> {
     std::thread::spawn(move || {
         let pkgs = brew::load_installed().unwrap_or_default();
         let leaves = brew::load_leaves();
-        let catalog = crate::catalog::load_catalog(&pkgs).unwrap_or_default();
-        let _ = tx.send((pkgs, leaves, catalog));
+        let _ = tx.send((pkgs, leaves));
+    });
+    rx
+}
+
+/// Spawn the catalog fetch separately so the installed list is never
+/// blocked behind the (much larger) remote catalog download.
+pub fn spawn_catalog_thread(installed: Vec<Package>) -> mpsc::Receiver<Vec<Package>> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let catalog = crate::catalog::load_catalog(&installed).unwrap_or_default();
+        let _ = tx.send(catalog);
     });
     rx
 }
@@ -187,6 +201,9 @@ pub fn run_modal_action(app: &mut App, modal: &Modal) {
         }
         ModalAction::Install(name) => vec!["install".into(), name.clone()],
         ModalAction::Update => vec!["update".into()],
+        ModalAction::UpgradeAll => vec!["upgrade".into()],
+        ModalAction::Cleanup => vec!["cleanup".into()],
+        ModalAction::Autoremove => vec!["autoremove".into()],
     };
     spawn_brew(app, &args);
 }
@@ -275,6 +292,7 @@ mod tests {
             menu: None,
             frame: 0,
             load_rx: None,
+            catalog_rx: None,
             help: false,
         };
         app.apply_section();

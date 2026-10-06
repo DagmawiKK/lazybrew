@@ -156,6 +156,27 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
                 });
             }
         }
+        KeyCode::Char('A') => {
+            app.modal = Some(Modal {
+                text: format!(
+                    "Upgrade all {} outdated packages? (y/n)",
+                    app.section_counts()[1]
+                ),
+                confirm: ModalAction::UpgradeAll,
+            });
+        }
+        KeyCode::Char('K') => {
+            app.modal = Some(Modal {
+                text: "Run 'brew cleanup'? (y/n)".into(),
+                confirm: ModalAction::Cleanup,
+            });
+        }
+        KeyCode::Char('n') => {
+            app.modal = Some(Modal {
+                text: "Run 'brew autoremove'? (y/n)".into(),
+                confirm: ModalAction::Autoremove,
+            });
+        }
         KeyCode::Char('U') => {
             app.modal = Some(Modal {
                 text: "Run 'brew update'? (y/n)".into(),
@@ -235,4 +256,31 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
         _ => {}
     }
     KeyFlow::Continue
+}
+
+/// All keybindings, listed in the help overlay.
+pub fn help_text() -> String {
+    let rows: &[(&str, &str)] = &[
+        ("j/k, up/down", "navigate"),
+        ("h/l, tab", "switch panel"),
+        ("/", "search"),
+        ("esc", "clear search / close"),
+        ("g/G", "top / bottom"),
+        ("i", "install package (or tap in Taps section)"),
+        ("u", "upgrade selected"),
+        ("r", "remove selected (untap in Taps section)"),
+        ("A", "upgrade all outdated"),
+        ("U", "brew update"),
+        ("K", "brew cleanup"),
+        ("n", "brew autoremove"),
+        ("x", "action menu (info/deps/pin)"),
+        ("e", "export Brewfile to ~/Brewfile"),
+        ("?", "this help"),
+        ("q", "quit"),
+    ];
+    let mut out = String::from("lazybrew keybindings\n\n");
+    for (key, desc) in rows {
+        out.push_str(&format!("{key:16} {desc}\n"));
+    }
+    out
 }

@@ -157,6 +157,8 @@ pub fn render(f: &mut Frame, app: &App) {
     // Footer
     let footer_text = if app.load_rx.is_some() {
         format!("{} loading Homebrew data...", spinner(app))
+    } else if app.catalog_rx.is_some() {
+        format!("{} loading catalog (once a day)...", spinner(app))
     } else {
         let full = "j/k nav | h/l switch | / search | i install | u upgrade | r remove | U update | x menu | esc clear | q quit";
         let compact = "j/k nav | / search | i/u/r ops | U update | x menu | ? help | q quit";
@@ -212,18 +214,7 @@ pub fn render(f: &mut Frame, app: &App) {
     }
 
     if app.help {
-        let help_text = "lazybrew keybindings\n\n\
-            j/k or up/down   navigate\n\
-            h/l or tab       switch panel\n\
-            /                search\n\
-            esc              clear search\n\
-            g/G              top/bottom\n\
-            i                install package\n\
-            u / r            upgrade / remove\n\
-            U                brew update\n\
-            x                action menu\n\
-            ?                this help\n\
-            q                quit";
+        let help_text = crate::input::help_text();
         let area = centered_rect(60, 60, f.area());
         f.render_widget(Clear, area);
         f.render_widget(
@@ -297,6 +288,7 @@ mod tests {
             menu: None,
             frame: 0,
             load_rx: None,
+            catalog_rx: None,
             help: false,
         };
         app.apply_section();
@@ -352,6 +344,7 @@ mod preview {
             menu: None,
             frame: 3,
             load_rx: None,
+            catalog_rx: None,
             help: false,
         };
         app.apply_section();

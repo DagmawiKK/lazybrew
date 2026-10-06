@@ -5,7 +5,7 @@ mod input;
 mod ui;
 
 use anyhow::Result;
-use app::{App, CmdEvent, Panel, spawn_load_thread};
+use app::{App, CmdEvent, Panel, spawn_catalog_thread, spawn_load_thread};
 use crossterm::{
     event::{self, Event},
     execute,
@@ -42,6 +42,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         list_idx: 0,
         panel: Panel::Sidebar,
         leaves: Vec::new(),
+        catalog_rx: None,
         catalog: Vec::new(),
         search: String::new(),
         searching: false,
@@ -67,12 +68,25 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         {
             loaded = Some(res);
         }
-        if let Some((pkgs, leaves, catalog)) = loaded {
+        if let Some((pkgs, leaves)) = loaded {
             app.packages = pkgs;
             app.leaves = leaves;
-            app.catalog = catalog;
-            app.apply_section();
             app.load_rx = None;
+            // Refresh the catalog (installed status) whenever installed data refreshes
+            app.catalog_rx = Some(spawn_catalog_thread(app.packages.clone()));
+            app.apply_section();
+        }
+
+        let mut catalog_loaded = None;
+        if let Some(rx) = &app.catalog_rx
+            && let Ok(cat) = rx.try_recv()
+        {
+            catalog_loaded = Some(cat);
+        }
+        if let Some(cat) = catalog_loaded {
+            app.catalog = cat;
+            app.catalog_rx = None;
+            app.apply_section();
         }
 
         // Drain background command events
