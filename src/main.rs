@@ -1,5 +1,6 @@
 mod app;
 mod brew;
+mod catalog;
 mod input;
 mod ui;
 
@@ -41,6 +42,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         list_idx: 0,
         panel: Panel::Sidebar,
         leaves: Vec::new(),
+        catalog: Vec::new(),
         search: String::new(),
         searching: false,
         installing: false,
@@ -65,9 +67,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         {
             loaded = Some(res);
         }
-        if let Some((pkgs, leaves)) = loaded {
+        if let Some((pkgs, leaves, catalog)) = loaded {
             app.packages = pkgs;
             app.leaves = leaves;
+            app.catalog = catalog;
             app.apply_section();
             app.load_rx = None;
         }

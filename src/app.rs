@@ -8,7 +8,7 @@ pub enum CmdEvent {
     Done(bool),
 }
 
-pub type LoadResult = (Vec<Package>, Vec<String>);
+pub type LoadResult = (Vec<Package>, Vec<String>, Vec<Package>);
 
 /// Sections shown in the lazygit-style left sidebar.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -17,14 +17,16 @@ pub enum Section {
     Outdated,
     Casks,
     Leaves,
+    Catalog,
 }
 
 impl Section {
-    pub const ALL: [Section; 4] = [
+    pub const ALL: [Section; 5] = [
         Section::Installed,
         Section::Outdated,
         Section::Casks,
         Section::Leaves,
+        Section::Catalog,
     ];
 
     pub fn title(&self) -> &'static str {
@@ -33,6 +35,7 @@ impl Section {
             Section::Outdated => "Outdated",
             Section::Casks => "Casks",
             Section::Leaves => "Leaves",
+            Section::Catalog => "Catalog",
         }
     }
 }
@@ -60,6 +63,7 @@ pub struct App {
     pub menu: Option<usize>,
     pub frame: usize,
     pub load_rx: Option<mpsc::Receiver<LoadResult>>,
+    pub catalog: Vec<Package>,
     pub help: bool,
 }
 
@@ -84,11 +88,15 @@ pub enum ModalAction {
 impl App {
     pub fn apply_section(&mut self) {
         let section = Section::ALL[self.section_idx];
+        let source: &[Package] = match section {
+            Section::Catalog => &self.catalog,
+            _ => &self.packages,
+        };
         let q = self.search.to_lowercase();
-        self.filtered = self
-            .packages
+        self.filtered = source
             .iter()
             .filter(|p| match section {
+                Section::Catalog => true,
                 Section::Installed => true,
                 Section::Outdated => p.outdated,
                 Section::Casks => p.cask,
@@ -104,10 +112,16 @@ impl App {
         self.list_idx = 0;
     }
 
-    pub fn section_counts(&self) -> [usize; 4] {
+    pub fn section_counts(&self) -> [usize; 5] {
         let outdated = self.packages.iter().filter(|p| p.outdated).count();
         let casks = self.packages.iter().filter(|p| p.cask).count();
-        [self.packages.len(), outdated, casks, self.leaves.len()]
+        [
+            self.packages.len(),
+            outdated,
+            casks,
+            self.leaves.len(),
+            self.catalog.len(),
+        ]
     }
 
     pub fn selected(&self) -> Option<&Package> {
@@ -120,7 +134,8 @@ pub fn spawn_load_thread() -> mpsc::Receiver<LoadResult> {
     std::thread::spawn(move || {
         let pkgs = brew::load_installed().unwrap_or_default();
         let leaves = brew::load_leaves();
-        let _ = tx.send((pkgs, leaves));
+        let catalog = crate::catalog::load_catalog(&pkgs).unwrap_or_default();
+        let _ = tx.send((pkgs, leaves, catalog));
     });
     rx
 }
@@ -249,6 +264,7 @@ mod tests {
             list_idx: 0,
             panel: Panel::Sidebar,
             leaves: vec![],
+            catalog: Vec::new(),
             search: String::new(),
             searching: false,
             installing: false,
