@@ -12,7 +12,7 @@ pub enum CmdEvent {
     VulnsMissing,
 }
 
-pub type LoadResult = (Vec<Package>, Vec<String>, Vec<Package>);
+pub type LoadResult = (Vec<Package>, Vec<String>, Vec<Package>, Vec<Package>);
 
 /// Sections shown in the lazygit-style left sidebar.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -24,19 +24,10 @@ pub enum Section {
     Catalog,
     Services,
     Brewfile,
+    Taps,
 }
 
 impl Section {
-    pub const ALL: [Section; 7] = [
-        Section::Installed,
-        Section::Outdated,
-        Section::Casks,
-        Section::Leaves,
-        Section::Catalog,
-        Section::Services,
-        Section::Brewfile,
-    ];
-
     pub fn title(&self) -> &'static str {
         match self {
             Section::Installed => "Installed",
@@ -46,6 +37,7 @@ impl Section {
             Section::Catalog => "Catalog",
             Section::Services => "Services",
             Section::Brewfile => "Brewfile",
+            Section::Taps => "Taps",
         }
     }
 }
@@ -75,6 +67,7 @@ pub struct App {
     pub load_rx: Option<mpsc::Receiver<LoadResult>>,
     pub catalog_rx: Option<mpsc::Receiver<Vec<Package>>>,
     pub catalog: Vec<Package>,
+    pub taps: Vec<Package>,
     pub services: Vec<Package>,
     pub vulns: std::collections::HashMap<String, Vec<String>>,
     pub help: bool,
@@ -108,6 +101,8 @@ pub enum ModalAction {
     InstallVulns,
     BrewfileInstall,
     BrewfileRemove,
+    Tap(String),
+    Untap(String),
 }
 
 impl App {
@@ -117,13 +112,14 @@ impl App {
             Section::Catalog => &self.catalog,
             Section::Services => &self.services,
             Section::Brewfile => &self.brewfile,
+            Section::Taps => &self.taps,
             _ => &self.packages,
         };
         let q = self.search.to_lowercase();
         self.filtered = source
             .iter()
             .filter(|p| match section {
-                Section::Catalog | Section::Services | Section::Brewfile => true,
+                Section::Catalog | Section::Services | Section::Brewfile | Section::Taps => true,
                 Section::Installed => true,
                 Section::Outdated => p.outdated,
                 Section::Casks => p.cask,
@@ -149,6 +145,7 @@ impl App {
             Section::Catalog => self.catalog.len(),
             Section::Services => self.services.len(),
             Section::Brewfile => self.brewfile.len(),
+            Section::Taps => self.taps.len(),
         }
     }
 
@@ -200,7 +197,8 @@ pub fn spawn_load_thread() -> mpsc::Receiver<LoadResult> {
         let pkgs = brew::load_installed().unwrap_or_default();
         let leaves = brew::load_leaves();
         let services = brew::load_services();
-        let _ = tx.send((pkgs, leaves, services));
+        let taps = brew::load_taps();
+        let _ = tx.send((pkgs, leaves, services, taps));
     });
     rx
 }
@@ -275,6 +273,8 @@ pub fn run_modal_action(app: &mut App, modal: &Modal) {
         ModalAction::BrewfileInstall | ModalAction::BrewfileRemove => {
             brewfile_commands(app, matches!(modal.confirm, ModalAction::BrewfileInstall))
         }
+        ModalAction::Tap(name) => vec![vec!["tap".into(), name.clone()]],
+        ModalAction::Untap(name) => vec![vec!["untap".into(), name.clone()]],
     };
     spawn_brew_multi(app, commands);
 }
@@ -444,6 +444,7 @@ mod tests {
             frame: 0,
             load_rx: None,
             services: Vec::new(),
+            taps: Vec::new(),
             vulns: Default::default(),
             catalog_rx: None,
             help: false,

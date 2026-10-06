@@ -70,6 +70,7 @@ fn run_app(
         Section::Leaves,
         Section::Catalog,
         Section::Services,
+        Section::Taps,
     ];
     if let Some(path) = &brewfile_path {
         match brewfile::load(path) {
@@ -90,6 +91,7 @@ fn run_app(
         leaves: Vec::new(),
         catalog_rx: None,
         services: Vec::new(),
+        taps: Vec::new(),
         vulns: Default::default(),
         catalog: Vec::new(),
         search: String::new(),
@@ -122,10 +124,11 @@ fn run_app(
         {
             loaded = Some(res);
         }
-        if let Some((pkgs, leaves, services)) = loaded {
+        if let Some((pkgs, leaves, services, taps)) = loaded {
             app.packages = pkgs;
             app.leaves = leaves;
             app.services = services;
+            app.taps = taps;
             app.load_rx = None;
             app.refresh_brewfile();
             // Refresh the catalog (installed status) whenever installed data refreshes

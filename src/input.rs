@@ -73,9 +73,14 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
                 app.installing = false;
                 app.install_input.clear();
                 if !name.is_empty() {
+                    let action = if app.sections[app.section_idx] == Section::Taps {
+                        ModalAction::Tap(name.clone())
+                    } else {
+                        ModalAction::Install(name.clone())
+                    };
                     app.modal = Some(Modal {
                         text: format!("Install '{}'? (y/n)", name),
-                        confirm: ModalAction::Install(name),
+                        confirm: action,
                     });
                 }
             }
@@ -185,8 +190,14 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
             }
         }
         KeyCode::Char('r') => {
-            if let Some(p) = app.selected() {
-                let p = p.clone();
+            if app.sections[app.section_idx] == Section::Taps {
+                if let Some(p) = app.selected().cloned() {
+                    app.modal = Some(Modal {
+                        text: format!("Untap '{}'? (y/n)", p.name),
+                        confirm: ModalAction::Untap(p.name),
+                    });
+                }
+            } else if let Some(p) = app.selected().cloned() {
                 app.modal = Some(Modal {
                     text: format!("Remove '{}'? (y/n)", p.name),
                     confirm: ModalAction::Remove(p.name, p.cask),
@@ -239,7 +250,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
         }
         KeyCode::Down | KeyCode::Char('j') => match app.panel {
             Panel::Sidebar => {
-                app.section_idx = (app.section_idx + 1) % Section::ALL.len();
+                app.section_idx = (app.section_idx + 1) % app.sections.len();
                 app.apply_section();
             }
             Panel::List => {
@@ -253,7 +264,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
                 app.section_idx = app
                     .section_idx
                     .checked_sub(1)
-                    .unwrap_or(Section::ALL.len() - 1);
+                    .unwrap_or(app.sections.len() - 1);
                 app.apply_section();
             }
             Panel::List => {
@@ -283,7 +294,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
             if app.panel == Panel::List {
                 app.list_idx = app.filtered.len().saturating_sub(1);
             } else {
-                app.section_idx = Section::ALL.len() - 1;
+                app.section_idx = app.sections.len() - 1;
                 app.apply_section();
             }
         }
@@ -313,6 +324,7 @@ pub fn help_text() -> String {
         ("s", "start/stop service (Services section)"),
         ("v", "vulnerability scan (formulae)"),
         ("I/R", "install/remove all (Brewfile section)"),
+        ("i/r", "tap/untap (Taps section)"),
         ("x", "action menu (info/deps/pin)"),
         ("e", "export Brewfile to ~/Brewfile"),
         ("?", "this help"),

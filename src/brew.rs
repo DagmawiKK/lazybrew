@@ -187,6 +187,30 @@ pub fn load_services() -> Vec<Package> {
     pkgs
 }
 
+/// Installed taps, represented as packages for the Taps section.
+pub fn load_taps() -> Vec<Package> {
+    let Ok(out) = brew_cmd(&["tap"]).output() else {
+        return Vec::new();
+    };
+    let mut pkgs: Vec<Package> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|t| Package {
+            name: t.to_string(),
+            desc: "Homebrew tap".into(),
+            version: "tap".into(),
+            cask: false,
+            outdated: false,
+            installed_version: Some("tapped".into()),
+            pinned: false,
+            service_status: None,
+        })
+        .collect();
+    pkgs.sort_by(|a, c| a.name.cmp(&c.name));
+    pkgs
+}
+
 /// Names of top-level formulae installed on request.
 pub fn load_leaves() -> Vec<String> {
     std::process::Command::new("brew")
