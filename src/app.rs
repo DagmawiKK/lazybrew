@@ -23,16 +23,18 @@ pub enum Section {
     Leaves,
     Catalog,
     Services,
+    Brewfile,
 }
 
 impl Section {
-    pub const ALL: [Section; 6] = [
+    pub const ALL: [Section; 7] = [
         Section::Installed,
         Section::Outdated,
         Section::Casks,
         Section::Leaves,
         Section::Catalog,
         Section::Services,
+        Section::Brewfile,
     ];
 
     pub fn title(&self) -> &'static str {
@@ -43,6 +45,7 @@ impl Section {
             Section::Leaves => "Leaves",
             Section::Catalog => "Catalog",
             Section::Services => "Services",
+            Section::Brewfile => "Brewfile",
         }
     }
 }
@@ -75,6 +78,12 @@ pub struct App {
     pub services: Vec<Package>,
     pub vulns: std::collections::HashMap<String, Vec<String>>,
     pub help: bool,
+    /// Sections actually shown in the sidebar (Brewfile only in -f mode).
+    pub sections: Vec<Section>,
+    /// Entries parsed from the -f Brewfile.
+    pub brewfile_entries: Vec<crate::brewfile::Entry>,
+    /// Brewfile entries resolved against installed + catalog data.
+    pub brewfile: Vec<Package>,
 }
 
 pub const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -97,21 +106,24 @@ pub enum ModalAction {
     Cleanup,
     Autoremove,
     InstallVulns,
+    BrewfileInstall,
+    BrewfileRemove,
 }
 
 impl App {
     pub fn apply_section(&mut self) {
-        let section = Section::ALL[self.section_idx];
+        let section = self.sections[self.section_idx];
         let source: &[Package] = match section {
             Section::Catalog => &self.catalog,
             Section::Services => &self.services,
+            Section::Brewfile => &self.brewfile,
             _ => &self.packages,
         };
         let q = self.search.to_lowercase();
         self.filtered = source
             .iter()
             .filter(|p| match section {
-                Section::Catalog | Section::Services => true,
+                Section::Catalog | Section::Services | Section::Brewfile => true,
                 Section::Installed => true,
                 Section::Outdated => p.outdated,
                 Section::Casks => p.cask,
@@ -127,17 +139,54 @@ impl App {
         self.list_idx = 0;
     }
 
-    pub fn section_counts(&self) -> [usize; 6] {
-        let outdated = self.packages.iter().filter(|p| p.outdated).count();
-        let casks = self.packages.iter().filter(|p| p.cask).count();
-        [
-            self.packages.len(),
-            outdated,
-            casks,
-            self.leaves.len(),
-            self.catalog.len(),
-            self.services.len(),
-        ]
+    /// Count of items in a section, for the sidebar display.
+    pub fn count_for(&self, section: Section) -> usize {
+        match section {
+            Section::Installed => self.packages.len(),
+            Section::Outdated => self.packages.iter().filter(|p| p.outdated).count(),
+            Section::Casks => self.packages.iter().filter(|p| p.cask).count(),
+            Section::Leaves => self.leaves.len(),
+            Section::Catalog => self.catalog.len(),
+            Section::Services => self.services.len(),
+            Section::Brewfile => self.brewfile.len(),
+        }
+    }
+
+    /// Resolve Brewfile entries against installed and catalog data.
+    pub fn refresh_brewfile(&mut self) {
+        let mut resolved = Vec::with_capacity(self.brewfile_entries.len());
+        for entry in &self.brewfile_entries {
+            let want_cask = matches!(entry.kind, crate::brewfile::EntryKind::Cask);
+            if matches!(entry.kind, crate::brewfile::EntryKind::Tap) {
+                continue;
+            }
+            let pkg = self
+                .packages
+                .iter()
+                .chain(self.catalog.iter())
+                .find(|p| p.name == entry.name && p.cask == want_cask)
+                .cloned()
+                .unwrap_or_else(|| Package {
+                    name: entry.name.clone(),
+                    desc: "(from Brewfile)".into(),
+                    version: "?".into(),
+                    cask: want_cask,
+                    outdated: false,
+                    installed_version: None,
+                    pinned: false,
+                    service_status: None,
+                });
+            resolved.push(pkg);
+        }
+        self.brewfile = resolved;
+    }
+
+    /// True when a resolved Brewfile package is not installed yet.
+    pub fn brewfile_missing(&self) -> usize {
+        self.brewfile
+            .iter()
+            .filter(|p| p.installed_version.is_none())
+            .count()
     }
 
     pub fn selected(&self) -> Option<&Package> {
@@ -195,14 +244,14 @@ pub fn run_menu_action(app: &mut App, idx: usize) {
 }
 
 pub fn run_modal_action(app: &mut App, modal: &Modal) {
-    let args: Vec<String> = match &modal.confirm {
+    let commands: Vec<Vec<String>> = match &modal.confirm {
         ModalAction::Upgrade(name, cask) => {
             let mut a = vec!["upgrade".into()];
             if *cask {
                 a.push("--cask".into());
             }
             a.push(name.clone());
-            a
+            vec![a]
         }
         ModalAction::Remove(name, cask) => {
             let mut a = vec!["uninstall".into()];
@@ -210,62 +259,137 @@ pub fn run_modal_action(app: &mut App, modal: &Modal) {
                 a.push("--cask".into());
             }
             a.push(name.clone());
-            a
+            vec![a]
         }
-        ModalAction::Install(name) => vec!["install".into(), name.clone()],
-        ModalAction::Update => vec!["update".into()],
-        ModalAction::UpgradeAll => vec!["upgrade".into()],
-        ModalAction::Cleanup => vec!["cleanup".into()],
-        ModalAction::Autoremove => vec!["autoremove".into()],
+        ModalAction::Install(name) => vec![vec!["install".into(), name.clone()]],
+        ModalAction::Update => vec![vec!["update".into()]],
+        ModalAction::UpgradeAll => vec![vec!["upgrade".into()]],
+        ModalAction::Cleanup => vec![vec!["cleanup".into()]],
+        ModalAction::Autoremove => vec![vec!["autoremove".into()]],
         ModalAction::InstallVulns => {
-            vec!["install".into(), "homebrew/brew-vulns/brew-vulns".into()]
+            vec![vec![
+                "install".into(),
+                "homebrew/brew-vulns/brew-vulns".into(),
+            ]]
+        }
+        ModalAction::BrewfileInstall | ModalAction::BrewfileRemove => {
+            brewfile_commands(app, matches!(modal.confirm, ModalAction::BrewfileInstall))
         }
     };
-    spawn_brew(app, &args);
+    spawn_brew_multi(app, commands);
+}
+
+/// Build the command sequence for batch Brewfile install/remove.
+/// Taps are handled first on install so formulae resolve.
+fn brewfile_commands(app: &App, install: bool) -> Vec<Vec<String>> {
+    let taps: Vec<String> = app
+        .brewfile_entries
+        .iter()
+        .filter(|e| e.kind == crate::brewfile::EntryKind::Tap)
+        .map(|e| e.name.clone())
+        .collect();
+    let formulae: Vec<String> = app
+        .brewfile
+        .iter()
+        .filter(|p| !p.cask)
+        .map(|p| p.name.clone())
+        .collect();
+    let casks: Vec<String> = app
+        .brewfile
+        .iter()
+        .filter(|p| p.cask)
+        .map(|p| p.name.clone())
+        .collect();
+
+    let mut commands: Vec<Vec<String>> = Vec::new();
+    if install {
+        for t in &taps {
+            commands.push(vec!["tap".into(), t.clone()]);
+        }
+        if !formulae.is_empty() {
+            let mut a = vec!["install".into()];
+            a.extend(formulae);
+            commands.push(a);
+        }
+        if !casks.is_empty() {
+            let mut a = vec!["install".into(), "--cask".into()];
+            a.extend(casks);
+            commands.push(a);
+        }
+    } else {
+        if !formulae.is_empty() {
+            let mut a = vec!["uninstall".into()];
+            a.extend(formulae);
+            commands.push(a);
+        }
+        if !casks.is_empty() {
+            let mut a = vec!["uninstall".into(), "--cask".into()];
+            a.extend(casks);
+            commands.push(a);
+        }
+    }
+    commands
 }
 
 pub fn spawn_brew(app: &mut App, args: &[String]) {
+    spawn_brew_multi(app, vec![args.to_vec()]);
+}
+
+/// Run a sequence of brew commands sequentially, streaming output for each.
+pub fn spawn_brew_multi(app: &mut App, commands: Vec<Vec<String>>) {
     app.output.clear();
-    app.output.push(format!("$ brew {}", args.join(" ")));
+    for c in &commands {
+        app.output.push(format!("$ brew {}", c.join(" ")));
+    }
     let (tx, rx) = mpsc::channel();
-    let args: Vec<String> = args.to_vec();
     std::thread::spawn(move || {
-        let mut cmd = std::process::Command::new("brew");
-        cmd.args(&args)
-            .env("NONINTERACTIVE", "1")
-            .env("HOMEBREW_NO_AUTO_UPDATE", "0")
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
-        let mut child = match cmd.spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = tx.send(CmdEvent::Line(format!("spawn error: {}", e)));
-                let _ = tx.send(CmdEvent::Done(false));
-                return;
+        let mut all_ok = true;
+        for args in commands {
+            if !run_brew_command(&tx, &args) {
+                all_ok = false;
             }
-        };
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
-        let tx_out = tx.clone();
-        let tx_err = tx.clone();
-        let t1 = std::thread::spawn(move || {
-            use std::io::{BufRead, BufReader};
-            for line in BufReader::new(stdout).lines().map_while(|l| l.ok()) {
-                let _ = tx_out.send(CmdEvent::Line(line));
-            }
-        });
-        let t2 = std::thread::spawn(move || {
-            use std::io::{BufRead, BufReader};
-            for line in BufReader::new(stderr).lines().map_while(|l| l.ok()) {
-                let _ = tx_err.send(CmdEvent::Line(line));
-            }
-        });
-        let status = child.wait().map(|s| s.success()).unwrap_or(false);
-        let _ = t1.join();
-        let _ = t2.join();
-        let _ = tx.send(CmdEvent::Done(status));
+        }
+        let _ = tx.send(CmdEvent::Done(all_ok));
     });
     app.cmd_rx = Some(rx);
+}
+
+/// Run one brew command, streaming each output line to `tx`.
+/// Returns true if the command exited successfully.
+fn run_brew_command(tx: &mpsc::Sender<CmdEvent>, args: &[String]) -> bool {
+    let mut cmd = std::process::Command::new("brew");
+    cmd.args(args)
+        .env("NONINTERACTIVE", "1")
+        .env("HOMEBREW_NO_AUTO_UPDATE", "0")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = tx.send(CmdEvent::Line(format!("spawn error: {}", e)));
+            return false;
+        }
+    };
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let tx_out = tx.clone();
+    let tx_err = tx.clone();
+    let t1 = std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader};
+        for line in BufReader::new(stdout).lines().map_while(|l| l.ok()) {
+            let _ = tx_out.send(CmdEvent::Line(line));
+        }
+    });
+    let t2 = std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader};
+        for line in BufReader::new(stderr).lines().map_while(|l| l.ok()) {
+            let _ = tx_err.send(CmdEvent::Line(line));
+        }
+    });
+    let status = child.wait().map(|s| s.success()).unwrap_or(false);
+    let _ = t1.join();
+    let _ = t2.join();
+    status
 }
 
 #[cfg(test)]
@@ -288,6 +412,16 @@ mod tests {
     #[test]
     fn filters_sections() {
         let mut app = App {
+            sections: vec![
+                Section::Installed,
+                Section::Outdated,
+                Section::Casks,
+                Section::Leaves,
+                Section::Catalog,
+                Section::Services,
+            ],
+            brewfile_entries: Vec::new(),
+            brewfile: Vec::new(),
             packages: vec![
                 pkg("git", false, false),
                 pkg("openssl", true, false),

@@ -117,10 +117,27 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
         KeyCode::Char('/') => {
             app.searching = true;
         }
+        KeyCode::Char('I') => {
+            if app.sections[app.section_idx] == Section::Brewfile {
+                let missing = app.brewfile_missing();
+                app.modal = Some(Modal {
+                    text: format!("Install {missing} missing Brewfile packages? (y/n)"),
+                    confirm: ModalAction::BrewfileInstall,
+                });
+            }
+        }
+        KeyCode::Char('R') => {
+            if app.sections[app.section_idx] == Section::Brewfile {
+                app.modal = Some(Modal {
+                    text: format!("Remove all {} Brewfile packages? (y/n)", app.brewfile.len()),
+                    confirm: ModalAction::BrewfileRemove,
+                });
+            }
+        }
         KeyCode::Char('v') => {
             if let Some(p) = app.selected().cloned()
                 && !p.cask
-                && Section::ALL[app.section_idx] != Section::Services
+                && app.sections[app.section_idx] != Section::Services
             {
                 crate::app::spawn_vuln_scan(app, p.name);
             } else {
@@ -129,7 +146,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
             }
         }
         KeyCode::Char('s') => {
-            if Section::ALL[app.section_idx] == Section::Services
+            if app.sections[app.section_idx] == Section::Services
                 && let Some(p) = app.selected().cloned()
             {
                 let running = p.service_status.as_deref() == Some("started");
@@ -180,7 +197,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
             app.modal = Some(Modal {
                 text: format!(
                     "Upgrade all {} outdated packages? (y/n)",
-                    app.section_counts()[1]
+                    app.count_for(Section::Outdated)
                 ),
                 confirm: ModalAction::UpgradeAll,
             });
@@ -295,6 +312,7 @@ pub fn help_text() -> String {
         ("n", "brew autoremove"),
         ("s", "start/stop service (Services section)"),
         ("v", "vulnerability scan (formulae)"),
+        ("I/R", "install/remove all (Brewfile section)"),
         ("x", "action menu (info/deps/pin)"),
         ("e", "export Brewfile to ~/Brewfile"),
         ("?", "this help"),

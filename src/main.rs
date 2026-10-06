@@ -1,11 +1,14 @@
 mod app;
 mod brew;
+mod brewfile;
 mod catalog;
 mod input;
 mod ui;
 
 use anyhow::Result;
-use app::{App, CmdEvent, Modal, ModalAction, Panel, spawn_catalog_thread, spawn_load_thread};
+use app::{
+    App, CmdEvent, Modal, ModalAction, Panel, Section, spawn_catalog_thread, spawn_load_thread,
+};
 use crossterm::{
     event::{self, Event},
     execute,
@@ -18,13 +21,35 @@ use std::time::Duration;
 use ui::render;
 
 fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut brewfile_path: Option<String> = None;
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-f" | "--file" => {
+                brewfile_path = args.get(i + 1).cloned();
+                i += 1;
+            }
+            "-h" | "--help" => {
+                println!("lazybrew - a lazygit-style TUI for Homebrew");
+                println!("Usage: lazybrew [-f <brewfile-path-or-url>]");
+                return Ok(());
+            }
+            other => {
+                eprintln!("unknown flag: {other}");
+                std::process::exit(2);
+            }
+        }
+        i += 1;
+    }
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let res = run_app(&mut terminal);
+    let res = run_app(&mut terminal, brewfile_path);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -32,10 +57,31 @@ fn main() -> Result<()> {
     res
 }
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    brewfile_path: Option<String>,
+) -> Result<()> {
     let load_rx = spawn_load_thread();
 
+    let mut sections = vec![
+        Section::Installed,
+        Section::Outdated,
+        Section::Casks,
+        Section::Leaves,
+        Section::Catalog,
+        Section::Services,
+    ];
+    if let Some(path) = &brewfile_path {
+        match brewfile::load(path) {
+            Ok(_) => sections.insert(0, Section::Brewfile),
+            Err(e) => eprintln!("warning: Brewfile not loaded: {e}"),
+        }
+    }
+
     let mut app = App {
+        sections,
+        brewfile_entries: Vec::new(),
+        brewfile: Vec::new(),
         packages: Vec::new(),
         filtered: Vec::new(),
         section_idx: 0,
@@ -58,6 +104,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         load_rx: Some(load_rx),
         help: false,
     };
+    if let Some(path) = &brewfile_path
+        && let Ok(entries) = brewfile::load(path)
+    {
+        app.brewfile_entries = entries;
+        app.refresh_brewfile();
+    }
     app.apply_section();
 
     loop {
@@ -75,6 +127,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
             app.leaves = leaves;
             app.services = services;
             app.load_rx = None;
+            app.refresh_brewfile();
             // Refresh the catalog (installed status) whenever installed data refreshes
             app.catalog_rx = Some(spawn_catalog_thread(app.packages.clone()));
             app.apply_section();
@@ -89,6 +142,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         if let Some(cat) = catalog_loaded {
             app.catalog = cat;
             app.catalog_rx = None;
+            app.refresh_brewfile();
             app.apply_section();
         }
 

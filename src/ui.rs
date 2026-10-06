@@ -1,6 +1,6 @@
 //! Rendering.
 
-use crate::app::{App, Panel, Section, spinner};
+use crate::app::{App, Panel, spinner};
 use ratatui::{prelude::*, widgets::*};
 
 pub fn render(f: &mut Frame, app: &App) {
@@ -49,14 +49,10 @@ pub fn render(f: &mut Frame, app: &App) {
     f.render_widget(output, chunks[3]);
 
     // Sidebar
-    let counts = app.section_counts();
-    let items: Vec<ListItem> = Section::ALL
+    let items: Vec<ListItem> = app
+        .sections
         .iter()
-        .enumerate()
-        .map(|(i, s)| {
-            let line = format!("{} ({})", s.title(), counts[i]);
-            ListItem::new(line)
-        })
+        .map(|s| ListItem::new(format!("{} ({})", s.title(), app.count_for(*s))))
         .collect();
     let sidebar = List::new(items)
         .block(
@@ -118,7 +114,7 @@ pub fn render(f: &mut Frame, app: &App) {
     .header(Row::new(vec!["Name", "Version", "Type"]).style(Style::default().bold().underlined()))
     .block(
         Block::default()
-            .title(format!(" {} ", Section::ALL[app.section_idx].title()))
+            .title(format!(" {} ", app.sections[app.section_idx].title()))
             .borders(Borders::ALL)
             .border_style(if app.panel == Panel::List {
                 Style::default().fg(Color::Yellow)
@@ -265,7 +261,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{App, Panel};
+    use crate::app::{App, Panel, Section};
     use crate::brew::Package;
     use ratatui::backend::TestBackend;
 
@@ -285,6 +281,16 @@ mod tests {
     #[test]
     fn renders_sections_and_packages() {
         let mut app = App {
+            sections: vec![
+                Section::Installed,
+                Section::Outdated,
+                Section::Casks,
+                Section::Leaves,
+                Section::Catalog,
+                Section::Services,
+            ],
+            brewfile_entries: Vec::new(),
+            brewfile: Vec::new(),
             packages: vec![pkg("git", false, false), pkg("firefox", true, true)],
             filtered: Vec::new(),
             section_idx: 0,
@@ -322,7 +328,7 @@ mod tests {
 #[cfg(test)]
 mod preview {
     use super::*;
-    use crate::app::{App, Panel};
+    use crate::app::{App, Panel, Section};
     use crate::brew::Package;
     use ratatui::backend::TestBackend;
 
@@ -339,6 +345,16 @@ mod preview {
             service_status: None,
         };
         let mut app = App {
+            sections: vec![
+                Section::Installed,
+                Section::Outdated,
+                Section::Casks,
+                Section::Leaves,
+                Section::Catalog,
+                Section::Services,
+            ],
+            brewfile_entries: Vec::new(),
+            brewfile: Vec::new(),
             packages: vec![
                 mk("git", false, false),
                 mk("openssl@3", true, false),
