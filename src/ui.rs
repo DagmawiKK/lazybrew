@@ -37,7 +37,12 @@ pub fn render(f: &mut Frame, app: &App) {
 }
 
 fn render_header(f: &mut Frame, app: &App, area: Rect) {
-    let dot = Span::styled("● ", Style::default().fg(th::pulse(app.frame)));
+    let pulse_frame = if app.cmd_rx.is_some() {
+        app.frame * 3
+    } else {
+        app.frame
+    };
+    let dot = Span::styled("● ", Style::default().fg(th::pulse(pulse_frame)));
     let title = Span::styled("lazybrew", Style::default().fg(Color::White).bold());
     let sep = Span::styled(" │ ", Style::default().fg(th::DIM));
     let stat = |label: &'static str, value: String, color: Color| {
@@ -203,6 +208,7 @@ fn render_table(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let focused = app.panel == Panel::List;
+    let section_tint = section_color(app.sections[app.section_idx]);
     let table = Table::new(
         rows,
         [
@@ -219,10 +225,17 @@ fn render_table(f: &mut Frame, app: &App, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         ),
     )
-    .block(th::panel_block(
-        &format!(" {} ", app.sections[app.section_idx].title()),
-        focused,
-    ))
+    .block(
+        th::panel_block(
+            &format!(" {} ", app.sections[app.section_idx].title()),
+            focused,
+        )
+        .title_style(
+            Style::default()
+                .fg(section_tint)
+                .add_modifier(Modifier::BOLD),
+        ),
+    )
     .row_highlight_style(Style::default().bg(hl_bg).add_modifier(Modifier::BOLD));
 
     let mut tstate = TableState::default();
@@ -333,9 +346,16 @@ fn render_output(f: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let title = if app.cmd_rx.is_some() {
-        format!(" Output {} ", spinner(app))
+        Line::from(vec![
+            Span::raw(" Output "),
+            Span::styled(
+                spinner(app).to_string(),
+                Style::default().fg(th::pulse(app.frame)).bold(),
+            ),
+            Span::raw(" "),
+        ])
     } else {
-        " Output ".to_string()
+        Line::from(" Output ")
     };
     let output = Paragraph::new(shown).block(
         Block::default()
