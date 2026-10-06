@@ -148,17 +148,6 @@ pub fn load_installed() -> Result<Vec<Package>> {
     Ok(pkgs)
 }
 
-/// Count leaves (top-level, explicitly installed formulae).
-pub fn leaf_count() -> usize {
-    match brew_cmd(&["leaves"]).output() {
-        Ok(out) => String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .count(),
-        Err(_) => 0,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
