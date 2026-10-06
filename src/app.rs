@@ -219,3 +219,53 @@ pub fn spawn_brew(app: &mut App, args: &[String]) {
     });
     app.cmd_rx = Some(rx);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pkg(name: &str, outdated: bool, cask: bool) -> Package {
+        Package {
+            name: name.into(),
+            desc: format!("{} desc", name),
+            version: "1.0".into(),
+            cask,
+            outdated,
+            installed_version: Some("1.0".into()),
+            pinned: false,
+        }
+    }
+
+    #[test]
+    fn filters_sections() {
+        let mut app = App {
+            packages: vec![
+                pkg("git", false, false),
+                pkg("openssl", true, false),
+                pkg("firefox", true, true),
+            ],
+            filtered: Vec::new(),
+            section_idx: 1, // Outdated
+            list_idx: 0,
+            panel: Panel::Sidebar,
+            leaves: vec![],
+            search: String::new(),
+            searching: false,
+            installing: false,
+            install_input: String::new(),
+            output: Vec::new(),
+            cmd_rx: None,
+            modal: None,
+            menu: None,
+            frame: 0,
+            load_rx: None,
+            help: false,
+        };
+        app.apply_section();
+        assert_eq!(app.filtered.len(), 2);
+        app.search = "firef".into();
+        app.apply_section();
+        assert_eq!(app.filtered.len(), 1);
+        assert_eq!(app.filtered[0].name, "firefox");
+    }
+}

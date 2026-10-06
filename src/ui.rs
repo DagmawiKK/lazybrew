@@ -254,3 +254,55 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         ])
         .split(popup_layout[1])[1]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{App, Panel};
+    use crate::brew::Package;
+    use ratatui::backend::TestBackend;
+
+    fn pkg(name: &str, outdated: bool, cask: bool) -> Package {
+        Package {
+            name: name.into(),
+            desc: format!("{} desc", name),
+            version: "1.0".into(),
+            cask,
+            outdated,
+            installed_version: Some("1.0".into()),
+            pinned: false,
+        }
+    }
+
+    #[test]
+    fn renders_sections_and_packages() {
+        let mut app = App {
+            packages: vec![pkg("git", false, false), pkg("firefox", true, true)],
+            filtered: Vec::new(),
+            section_idx: 0,
+            list_idx: 0,
+            panel: Panel::Sidebar,
+            leaves: vec![],
+            search: String::new(),
+            searching: false,
+            installing: false,
+            install_input: String::new(),
+            output: Vec::new(),
+            cmd_rx: None,
+            modal: None,
+            menu: None,
+            frame: 0,
+            load_rx: None,
+            help: false,
+        };
+        app.apply_section();
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| render(f, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(text.contains("Sections"), "missing Sections: {}", text);
+        assert!(text.contains("git"), "missing git");
+        assert!(text.contains("Installed"), "missing Installed");
+    }
+}
