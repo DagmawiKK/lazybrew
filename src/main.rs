@@ -7,6 +7,8 @@ use crossterm::{
 use ratatui::{prelude::*, widgets::*};
 use std::io;
 
+mod brew;
+
 fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
