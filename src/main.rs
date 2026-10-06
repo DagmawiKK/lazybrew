@@ -50,11 +50,14 @@ struct App {
     list_idx: usize,
     panel: Panel,
     leaves: Vec<String>,
+    search: String,
+    searching: bool,
 }
 
 impl App {
     fn apply_section(&mut self) {
         let section = Section::ALL[self.section_idx];
+        let q = self.search.to_lowercase();
         self.filtered = self
             .packages
             .iter()
@@ -63,6 +66,11 @@ impl App {
                 Section::Outdated => p.outdated,
                 Section::Casks => p.cask,
                 Section::Leaves => !p.cask && self.leaves.iter().any(|l| l == &p.name),
+            })
+            .filter(|p| {
+                q.is_empty()
+                    || p.name.to_lowercase().contains(&q)
+                    || p.desc.to_lowercase().contains(&q)
             })
             .cloned()
             .collect();
@@ -121,6 +129,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         list_idx: 0,
         panel: Panel::Sidebar,
         leaves,
+        search: String::new(),
+        searching: false,
     };
     app.apply_section();
 
@@ -128,7 +138,31 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         terminal.draw(|f| render(f, &app))?;
 
         if let Event::Key(key) = event::read()? {
+            if app.searching {
+                match key.code {
+                    KeyCode::Enter => app.searching = false,
+                    KeyCode::Esc => {
+                        app.search.clear();
+                        app.apply_section();
+                        app.searching = false;
+                    }
+                    KeyCode::Backspace => {
+                        app.search.pop();
+                        app.apply_section();
+                    }
+                    KeyCode::Char(c) => {
+                        app.search.push(c);
+                        app.apply_section();
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+
             match key.code {
+                KeyCode::Char('/') => {
+                    app.searching = true;
+                }
                 KeyCode::Char('q') => return Ok(()),
                 KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                     app.panel = match app.panel {
@@ -168,6 +202,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                 KeyCode::Enter => {
                     if app.panel == Panel::Sidebar {
                         app.panel = Panel::List;
+                    }
+                }
+                KeyCode::Esc => {
+                    if !app.search.is_empty() {
+                        app.search.clear();
+                        app.apply_section();
                     }
                 }
                 KeyCode::Char('g') => {
@@ -233,6 +273,22 @@ fn render(f: &mut Frame, app: &App) {
     f.render_stateful_widget(sidebar, body[0], &mut state);
 
     // Package list
+    let list_area = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(3)])
+        .split(body[1]);
+
+    let search_style = if app.searching {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let cursor = if app.searching { "_" } else { "" };
+    f.render_widget(
+        Paragraph::new(format!("/{}{}", app.search, cursor)).style(search_style),
+        list_area[0],
+    );
+
     let rows: Vec<Row> = app
         .filtered
         .iter()
@@ -264,7 +320,7 @@ fn render(f: &mut Frame, app: &App) {
         .row_highlight_style(Style::default().bg(Color::DarkGray));
     let mut tstate = TableState::default();
     tstate.select(if app.filtered.is_empty() { None } else { Some(app.list_idx) });
-    f.render_stateful_widget(table, body[1], &mut tstate);
+    f.render_stateful_widget(table, list_area[1], &mut tstate);
 
     // Details
     let details_text = match app.selected() {
@@ -286,7 +342,7 @@ fn render(f: &mut Frame, app: &App) {
     f.render_widget(details, body[2]);
 
     // Footer
-    let footer = Paragraph::new("j/k nav | h/l or tab switch panel | g/G top/bottom | q quit")
+    let footer = Paragraph::new("j/k nav | h/l or tab switch | / search | esc clear | g/G top/bottom | q quit")
         .style(Style::default().fg(Color::Gray));
     f.render_widget(footer, chunks[1]);
 }
