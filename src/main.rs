@@ -326,6 +326,21 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                     }
                 }
                 KeyCode::Char('?') => app.help = true,
+                KeyCode::Char('e') => {
+                    let home = dirs::home_dir().unwrap_or_else(|| ".".into());
+                    let path = home.join("Brewfile");
+                    spawn_brew(
+                        &mut app,
+                        &[
+                            "bundle".into(),
+                            "dump".into(),
+                            "--force".into(),
+                            format!("--file={}", path.display()),
+                        ],
+                    );
+                    app.output
+                        .push(format!("Brewfile written to {}", path.display()));
+                }
                 KeyCode::Char('u') => {
                     if let Some(p) = app.selected() {
                         let p = p.clone();
@@ -525,11 +540,21 @@ fn render(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(1),
             Constraint::Min(3),
             Constraint::Length(8),
             Constraint::Length(1),
         ])
         .split(f.area());
+
+    let header = Paragraph::new(format!(
+        " lazybrew — {} packages ({} outdated) — {} leaves",
+        app.packages.len(),
+        app.packages.iter().filter(|p| p.outdated).count(),
+        app.leaves.len()
+    ))
+    .style(Style::default().fg(Color::Cyan).bold());
+    f.render_widget(header, chunks[0]);
 
     let body = Layout::default()
         .direction(Direction::Horizontal)
@@ -538,7 +563,7 @@ fn render(f: &mut Frame, app: &App) {
             Constraint::Percentage(55),
             Constraint::Percentage(25),
         ])
-        .split(chunks[0]);
+        .split(chunks[1]);
 
     let output_text = if app.output.is_empty() {
         "(no command output yet)".to_string()
@@ -553,7 +578,7 @@ fn render(f: &mut Frame, app: &App) {
     };
     let output = Paragraph::new(output_text)
         .block(Block::default().title(output_title).borders(Borders::ALL));
-    f.render_widget(output, chunks[1]);
+    f.render_widget(output, chunks[2]);
 
     // Sidebar
     let counts = app.section_counts();
@@ -673,7 +698,7 @@ fn render(f: &mut Frame, app: &App) {
         "j/k nav | h/l switch | / search | i install | u upgrade | r remove | U update | x menu | esc clear | q quit".to_string()
     };
     let footer = Paragraph::new(footer_text).style(Style::default().fg(Color::Gray));
-    f.render_widget(footer, chunks[2]);
+    f.render_widget(footer, chunks[3]);
 
     if let Some(modal) = &app.modal {
         let area = centered_rect(50, 20, f.area());
