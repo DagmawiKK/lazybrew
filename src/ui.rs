@@ -8,6 +8,7 @@ pub fn render(f: &mut Frame, app: &App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Min(3),
             Constraint::Length(8),
             Constraint::Length(1),
@@ -30,7 +31,7 @@ pub fn render(f: &mut Frame, app: &App) {
             Constraint::Percentage(55),
             Constraint::Percentage(25),
         ])
-        .split(chunks[1]);
+        .split(chunks[2]);
 
     let output_text = if app.output.is_empty() {
         "(no command output yet)".to_string()
@@ -45,7 +46,7 @@ pub fn render(f: &mut Frame, app: &App) {
     };
     let output = Paragraph::new(output_text)
         .block(Block::default().title(output_title).borders(Borders::ALL));
-    f.render_widget(output, chunks[2]);
+    f.render_widget(output, chunks[3]);
 
     // Sidebar
     let counts = app.section_counts();
@@ -73,12 +74,7 @@ pub fn render(f: &mut Frame, app: &App) {
     state.select(Some(app.section_idx));
     f.render_stateful_widget(sidebar, body[0], &mut state);
 
-    // Package list
-    let list_area = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(3)])
-        .split(body[1]);
-
+    // Search row (full width, above body)
     let search_style = if app.searching {
         Style::default().fg(Color::Yellow)
     } else {
@@ -87,14 +83,14 @@ pub fn render(f: &mut Frame, app: &App) {
     let cursor = if app.searching { "_" } else { "" };
     f.render_widget(
         Paragraph::new(format!("/{}{}", app.search, cursor)).style(search_style),
-        list_area[0],
+        chunks[1],
     );
 
     if app.installing {
         f.render_widget(
             Paragraph::new(format!("install package: {}_", app.install_input))
                 .style(Style::default().fg(Color::Green)),
-            list_area[0],
+            chunks[1],
         );
     }
 
@@ -137,7 +133,7 @@ pub fn render(f: &mut Frame, app: &App) {
     } else {
         Some(app.list_idx)
     });
-    f.render_stateful_widget(table, list_area[1], &mut tstate);
+    f.render_stateful_widget(table, body[1], &mut tstate);
 
     // Details
     let details_text = match app.selected() {
@@ -165,7 +161,7 @@ pub fn render(f: &mut Frame, app: &App) {
         "j/k nav | h/l switch | / search | i install | u upgrade | r remove | U update | x menu | esc clear | q quit".to_string()
     };
     let footer = Paragraph::new(footer_text).style(Style::default().fg(Color::Gray));
-    f.render_widget(footer, chunks[3]);
+    f.render_widget(footer, chunks[4]);
 
     if let Some(modal) = &app.modal {
         let area = centered_rect(50, 20, f.area());
