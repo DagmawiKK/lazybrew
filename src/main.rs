@@ -69,6 +69,7 @@ struct App {
     menu: Option<usize>,
     frame: usize,
     load_rx: Option<mpsc::Receiver<LoadResult>>,
+    help: bool,
 }
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -168,6 +169,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         menu: None,
         frame: 0,
         load_rx: Some(load_rx),
+        help: false,
     };
     app.apply_section();
 
@@ -213,6 +215,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         if event::poll(Duration::from_millis(100))?
             && let Event::Key(key) = event::read()?
         {
+            if app.help {
+                app.help = false;
+                continue;
+            }
+
             if let Some(menu_idx) = app.menu {
                 match key.code {
                     KeyCode::Esc | KeyCode::Char('x') => app.menu = None,
@@ -318,6 +325,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                         app.menu = Some(0);
                     }
                 }
+                KeyCode::Char('?') => app.help = true,
                 KeyCode::Char('u') => {
                     if let Some(p) = app.selected() {
                         let p = p.clone();
@@ -676,6 +684,59 @@ fn render(f: &mut Frame, app: &App) {
                     .title(" Confirm ")
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Yellow)),
+            ),
+            area,
+        );
+    }
+
+    if let Some(menu_idx) = app.menu {
+        let items = ["u Upgrade", "r Remove", "i Info", "d Deps", "p Pin/Unpin"];
+        let text = items
+            .iter()
+            .enumerate()
+            .map(|(i, it)| {
+                if i == menu_idx {
+                    format!("> {}", it)
+                } else {
+                    format!("  {}", it)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let area = centered_rect(30, 30, f.area());
+        f.render_widget(Clear, area);
+        f.render_widget(
+            Paragraph::new(text).block(
+                Block::default()
+                    .title(" Actions ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            ),
+            area,
+        );
+    }
+
+    if app.help {
+        let help_text = "lazybrew keybindings\n\n\
+            j/k or up/down   navigate\n\
+            h/l or tab       switch panel\n\
+            /                search\n\
+            esc              clear search\n\
+            g/G              top/bottom\n\
+            i                install package\n\
+            u / r            upgrade / remove\n\
+            U                brew update\n\
+            x                action menu\n\
+            ?                this help\n\
+            q                quit";
+        let area = centered_rect(60, 60, f.area());
+        f.render_widget(Clear, area);
+        f.render_widget(
+            Paragraph::new(help_text).block(
+                Block::default()
+                    .title(" Help ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
             ),
             area,
         );
