@@ -102,6 +102,7 @@ fn merge_remote(installed: &[Package], f_data: &[u8], c_data: &[u8]) -> Result<V
             name: f.name,
             desc: f.desc.unwrap_or_default(),
             cask: false,
+            service_status: None,
         });
     }
     for c in remote_casks {
@@ -114,6 +115,7 @@ fn merge_remote(installed: &[Package], f_data: &[u8], c_data: &[u8]) -> Result<V
             name: c.token,
             desc: c.desc.unwrap_or_default(),
             cask: true,
+            service_status: None,
         });
     }
     pkgs.sort_by(|a, b| a.name.cmp(&b.name));
@@ -160,6 +162,7 @@ mod tests {
             outdated: true,
             installed_version: Some("1.9".into()),
             pinned: false,
+            service_status: None,
         };
         let remote = r#"[{"name":"git","desc":"vcs","versions":{"stable":"2.0"}}]"#;
         let catalog = merge_remote(&[inst], remote.as_bytes(), b"[]").unwrap();

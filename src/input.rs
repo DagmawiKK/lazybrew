@@ -117,6 +117,15 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
         KeyCode::Char('/') => {
             app.searching = true;
         }
+        KeyCode::Char('s') => {
+            if Section::ALL[app.section_idx] == Section::Services {
+                if let Some(p) = app.selected().cloned() {
+                    let running = p.service_status.as_deref() == Some("started");
+                    let verb = if running { "stop" } else { "start" };
+                    spawn_brew(app, &["services".into(), verb.into(), p.name]);
+                }
+            }
+        }
         KeyCode::Char('x') => {
             if app.selected().is_some() {
                 app.menu = Some(0);
@@ -273,6 +282,7 @@ pub fn help_text() -> String {
         ("U", "brew update"),
         ("K", "brew cleanup"),
         ("n", "brew autoremove"),
+        ("s", "start/stop service (Services section)"),
         ("x", "action menu (info/deps/pin)"),
         ("e", "export Brewfile to ~/Brewfile"),
         ("?", "this help"),

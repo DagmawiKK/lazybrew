@@ -43,6 +43,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         panel: Panel::Sidebar,
         leaves: Vec::new(),
         catalog_rx: None,
+        services: Vec::new(),
         catalog: Vec::new(),
         search: String::new(),
         searching: false,
@@ -68,9 +69,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         {
             loaded = Some(res);
         }
-        if let Some((pkgs, leaves)) = loaded {
+        if let Some((pkgs, leaves, services)) = loaded {
             app.packages = pkgs;
             app.leaves = leaves;
+            app.services = services;
             app.load_rx = None;
             // Refresh the catalog (installed status) whenever installed data refreshes
             app.catalog_rx = Some(spawn_catalog_thread(app.packages.clone()));

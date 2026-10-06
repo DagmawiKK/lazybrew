@@ -13,6 +13,8 @@ pub struct Package {
     pub outdated: bool,
     pub installed_version: Option<String>,
     pub pinned: bool,
+    /// Set when the package is a managed background service (section Services).
+    pub service_status: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -55,6 +57,14 @@ struct InstalledCask {
     version: Option<String>,
     #[serde(default)]
     installed: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ServiceEntry {
+    name: String,
+    status: String,
+    #[serde(default)]
+    user: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -129,6 +139,7 @@ pub fn load_installed() -> Result<Vec<Package>> {
             cask: false,
             outdated: is_outdated,
             pinned: f.pinned,
+            service_status: None,
         });
     }
     for c in installed.casks {
@@ -141,10 +152,39 @@ pub fn load_installed() -> Result<Vec<Package>> {
             cask: true,
             outdated: is_outdated,
             pinned: false,
+            service_status: None,
         });
     }
     pkgs.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(pkgs)
+}
+
+/// Load `brew services list` as packages (one per service).
+pub fn load_services() -> Vec<Package> {
+    let Ok(out) = brew_cmd(&["services", "list", "--json"]).output() else {
+        return Vec::new();
+    };
+    let Ok(entries) = serde_json::from_slice::<Vec<ServiceEntry>>(&out.stdout) else {
+        return Vec::new();
+    };
+    let mut pkgs: Vec<Package> = entries
+        .into_iter()
+        .map(|s| Package {
+            name: s.name,
+            desc: format!(
+                "Homebrew service ({})",
+                s.user.unwrap_or_else(|| "root".into())
+            ),
+            version: "service".into(),
+            cask: false,
+            outdated: false,
+            installed_version: None,
+            pinned: false,
+            service_status: Some(s.status),
+        })
+        .collect();
+    pkgs.sort_by(|a, b| a.name.cmp(&b.name));
+    pkgs
 }
 
 /// Names of top-level formulae installed on request.

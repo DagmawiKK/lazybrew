@@ -8,7 +8,7 @@ pub enum CmdEvent {
     Done(bool),
 }
 
-pub type LoadResult = (Vec<Package>, Vec<String>);
+pub type LoadResult = (Vec<Package>, Vec<String>, Vec<Package>);
 
 /// Sections shown in the lazygit-style left sidebar.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -18,15 +18,17 @@ pub enum Section {
     Casks,
     Leaves,
     Catalog,
+    Services,
 }
 
 impl Section {
-    pub const ALL: [Section; 5] = [
+    pub const ALL: [Section; 6] = [
         Section::Installed,
         Section::Outdated,
         Section::Casks,
         Section::Leaves,
         Section::Catalog,
+        Section::Services,
     ];
 
     pub fn title(&self) -> &'static str {
@@ -36,6 +38,7 @@ impl Section {
             Section::Casks => "Casks",
             Section::Leaves => "Leaves",
             Section::Catalog => "Catalog",
+            Section::Services => "Services",
         }
     }
 }
@@ -65,6 +68,7 @@ pub struct App {
     pub load_rx: Option<mpsc::Receiver<LoadResult>>,
     pub catalog_rx: Option<mpsc::Receiver<Vec<Package>>>,
     pub catalog: Vec<Package>,
+    pub services: Vec<Package>,
     pub help: bool,
 }
 
@@ -94,13 +98,14 @@ impl App {
         let section = Section::ALL[self.section_idx];
         let source: &[Package] = match section {
             Section::Catalog => &self.catalog,
+            Section::Services => &self.services,
             _ => &self.packages,
         };
         let q = self.search.to_lowercase();
         self.filtered = source
             .iter()
             .filter(|p| match section {
-                Section::Catalog => true,
+                Section::Catalog | Section::Services => true,
                 Section::Installed => true,
                 Section::Outdated => p.outdated,
                 Section::Casks => p.cask,
@@ -116,7 +121,7 @@ impl App {
         self.list_idx = 0;
     }
 
-    pub fn section_counts(&self) -> [usize; 5] {
+    pub fn section_counts(&self) -> [usize; 6] {
         let outdated = self.packages.iter().filter(|p| p.outdated).count();
         let casks = self.packages.iter().filter(|p| p.cask).count();
         [
@@ -125,6 +130,7 @@ impl App {
             casks,
             self.leaves.len(),
             self.catalog.len(),
+            self.services.len(),
         ]
     }
 
@@ -138,7 +144,8 @@ pub fn spawn_load_thread() -> mpsc::Receiver<LoadResult> {
     std::thread::spawn(move || {
         let pkgs = brew::load_installed().unwrap_or_default();
         let leaves = brew::load_leaves();
-        let _ = tx.send((pkgs, leaves));
+        let services = brew::load_services();
+        let _ = tx.send((pkgs, leaves, services));
     });
     rx
 }
@@ -265,6 +272,7 @@ mod tests {
             outdated,
             installed_version: Some("1.0".into()),
             pinned: false,
+            service_status: None,
         }
     }
 
@@ -292,6 +300,7 @@ mod tests {
             menu: None,
             frame: 0,
             load_rx: None,
+            services: Vec::new(),
             catalog_rx: None,
             help: false,
         };

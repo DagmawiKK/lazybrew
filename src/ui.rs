@@ -137,16 +137,23 @@ pub fn render(f: &mut Frame, app: &App) {
 
     // Details
     let details_text = match app.selected() {
-        Some(p) => format!(
-            "Name: {}\nType: {}\nVersion: {}\nInstalled: {}\nOutdated: {}\nPinned: {}\n\n{}",
-            p.name,
-            if p.cask { "cask" } else { "formula" },
-            p.version,
-            p.installed_version.as_deref().unwrap_or("?"),
-            p.outdated,
-            p.pinned,
-            p.desc
-        ),
+        Some(p) => {
+            let service_line = match &p.service_status {
+                Some(st) => format!("Service: {st} (press s to toggle)\n"),
+                None => String::new(),
+            };
+            format!(
+                "Name: {}\nType: {}\nVersion: {}\nInstalled: {}\nOutdated: {}\nPinned: {}\n{}\n{}",
+                p.name,
+                if p.cask { "cask" } else { "formula" },
+                p.version,
+                p.installed_version.as_deref().unwrap_or("-"),
+                p.outdated,
+                p.pinned,
+                service_line,
+                p.desc
+            )
+        }
         None => "No package selected".to_string(),
     };
     let details = Paragraph::new(details_text)
@@ -265,6 +272,7 @@ mod tests {
             outdated,
             installed_version: Some("1.0".into()),
             pinned: false,
+            service_status: None,
         }
     }
 
@@ -288,6 +296,7 @@ mod tests {
             menu: None,
             frame: 0,
             load_rx: None,
+            services: Vec::new(),
             catalog_rx: None,
             help: false,
         };
@@ -320,6 +329,7 @@ mod preview {
             outdated,
             installed_version: Some("1.0".into()),
             pinned: false,
+            service_status: None,
         };
         let mut app = App {
             packages: vec![
@@ -344,6 +354,7 @@ mod preview {
             menu: None,
             frame: 3,
             load_rx: None,
+            services: Vec::new(),
             catalog_rx: None,
             help: false,
         };
