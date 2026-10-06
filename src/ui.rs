@@ -28,8 +28,8 @@ pub fn render(f: &mut Frame, app: &App) {
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Length(24),
-            Constraint::Percentage(55),
-            Constraint::Percentage(25),
+            Constraint::Min(20),
+            Constraint::Length(24),
         ])
         .split(chunks[2]);
 
@@ -158,7 +158,14 @@ pub fn render(f: &mut Frame, app: &App) {
     let footer_text = if app.load_rx.is_some() {
         format!("{} loading Homebrew data...", spinner(app))
     } else {
-        "j/k nav | h/l switch | / search | i install | u upgrade | r remove | U update | x menu | esc clear | q quit".to_string()
+        let full = "j/k nav | h/l switch | / search | i install | u upgrade | r remove | U update | x menu | esc clear | q quit";
+        let compact = "j/k nav | / search | i/u/r ops | U update | x menu | ? help | q quit";
+        if chunks[4].width as usize > full.len() {
+            full
+        } else {
+            compact
+        }
+        .to_string()
     };
     let footer = Paragraph::new(footer_text).style(Style::default().fg(Color::Gray));
     f.render_widget(footer, chunks[4]);
@@ -300,5 +307,59 @@ mod tests {
         assert!(text.contains("Sections"), "missing Sections: {}", text);
         assert!(text.contains("git"), "missing git");
         assert!(text.contains("Installed"), "missing Installed");
+    }
+}
+
+#[cfg(test)]
+mod preview {
+    use super::*;
+    use crate::app::{App, Panel};
+    use crate::brew::Package;
+    use ratatui::backend::TestBackend;
+
+    #[test]
+    fn print_layout() {
+        let mk = |name: &str, outdated: bool, cask: bool| Package {
+            name: name.into(),
+            desc: format!("{name} desc"),
+            version: "1.0".into(),
+            cask,
+            outdated,
+            installed_version: Some("1.0".into()),
+            pinned: false,
+        };
+        let mut app = App {
+            packages: vec![
+                mk("git", false, false),
+                mk("openssl@3", true, false),
+                mk("firefox", true, true),
+                mk("zsh", false, false),
+            ],
+            filtered: Vec::new(),
+            section_idx: 0,
+            list_idx: 1,
+            panel: Panel::List,
+            leaves: vec!["git".into(), "zsh".into()],
+            search: String::new(),
+            searching: false,
+            installing: false,
+            install_input: String::new(),
+            output: vec!["$ brew install git".into(), "== done ==".into()],
+            cmd_rx: None,
+            modal: None,
+            menu: None,
+            frame: 3,
+            load_rx: None,
+            help: false,
+        };
+        app.apply_section();
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| render(f, &app)).unwrap();
+        let buf = terminal.backend().buffer();
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            println!("{y:2}|{line}|");
+        }
     }
 }
