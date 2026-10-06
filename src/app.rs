@@ -6,6 +6,10 @@ use std::sync::mpsc;
 pub enum CmdEvent {
     Line(String),
     Done(bool),
+    /// Vulnerability scan finished: package name, list of advisory summaries.
+    Vulns(String, Vec<String>),
+    /// `brew vulns` is not installed.
+    VulnsMissing,
 }
 
 pub type LoadResult = (Vec<Package>, Vec<String>, Vec<Package>);
@@ -69,6 +73,7 @@ pub struct App {
     pub catalog_rx: Option<mpsc::Receiver<Vec<Package>>>,
     pub catalog: Vec<Package>,
     pub services: Vec<Package>,
+    pub vulns: std::collections::HashMap<String, Vec<String>>,
     pub help: bool,
 }
 
@@ -91,6 +96,7 @@ pub enum ModalAction {
     UpgradeAll,
     Cleanup,
     Autoremove,
+    InstallVulns,
 }
 
 impl App {
@@ -211,6 +217,9 @@ pub fn run_modal_action(app: &mut App, modal: &Modal) {
         ModalAction::UpgradeAll => vec!["upgrade".into()],
         ModalAction::Cleanup => vec!["cleanup".into()],
         ModalAction::Autoremove => vec!["autoremove".into()],
+        ModalAction::InstallVulns => {
+            vec!["install".into(), "homebrew/brew-vulns/brew-vulns".into()]
+        }
     };
     spawn_brew(app, &args);
 }
@@ -301,6 +310,7 @@ mod tests {
             frame: 0,
             load_rx: None,
             services: Vec::new(),
+            vulns: Default::default(),
             catalog_rx: None,
             help: false,
         };
@@ -311,4 +321,72 @@ mod tests {
         assert_eq!(app.filtered.len(), 1);
         assert_eq!(app.filtered[0].name, "firefox");
     }
+}
+
+/// Scan the selected package for known vulnerabilities.
+/// Streams human-readable output while scanning, then caches the JSON result.
+pub fn spawn_vuln_scan(app: &mut App, name: String) {
+    app.output.clear();
+    app.output.push(format!("$ brew vulns {name}"));
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let status = std::process::Command::new("brew")
+            .args(["vulns", &name])
+            .env("NONINTERACTIVE", "1")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output();
+        let out = match status {
+            Ok(o) => o,
+            Err(e) => {
+                let _ = tx.send(CmdEvent::Line(format!("error: {e}")));
+                let _ = tx.send(CmdEvent::Done(false));
+                return;
+            }
+        };
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        let err_text = String::from_utf8_lossy(&out.stderr).to_string();
+        if !err_text.contains("vulns") || out.status.code() == Some(127) {
+            // command not found / unknown command
+            if err_text.contains("No such file")
+                || err_text.contains("unknown command")
+                || err_text.contains("not found")
+            {
+                let _ = tx.send(CmdEvent::VulnsMissing);
+                return;
+            }
+        }
+        for line in text.lines().chain(err_text.lines()) {
+            let _ = tx.send(CmdEvent::Line(line.to_string()));
+        }
+        // Structured result (best effort)
+        let json = std::process::Command::new("brew")
+            .args(["vulns", &name, "--json"])
+            .env("NONINTERACTIVE", "1")
+            .output();
+        let mut vulns = Vec::new();
+        if let Ok(j) = json
+            && j.status.success()
+            && let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&j.stdout)
+            && let Some(arr) = parsed.as_array()
+        {
+            for entry in arr {
+                if let Some(list) = entry.get("vulnerabilities").and_then(|v| v.as_array()) {
+                    for v in list {
+                        let id = v.get("id").and_then(|i| i.as_str()).unwrap_or("CVE");
+                        let summary = v
+                            .get("summary")
+                            .and_then(|s| s.as_str())
+                            .unwrap_or("(no summary)");
+                        vulns.push(format!("[{id}] {summary}"));
+                    }
+                }
+            }
+        }
+        let _ = tx.send(CmdEvent::Vulns(name, vulns));
+        let _ = tx.send(CmdEvent::Done(
+            !out.stdout.is_empty() || out.status.success(),
+        ));
+    });
+    app.cmd_rx = Some(rx);
 }

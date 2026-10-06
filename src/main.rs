@@ -5,7 +5,7 @@ mod input;
 mod ui;
 
 use anyhow::Result;
-use app::{App, CmdEvent, Panel, spawn_catalog_thread, spawn_load_thread};
+use app::{App, CmdEvent, Modal, ModalAction, Panel, spawn_catalog_thread, spawn_load_thread};
 use crossterm::{
     event::{self, Event},
     execute,
@@ -44,6 +44,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         leaves: Vec::new(),
         catalog_rx: None,
         services: Vec::new(),
+        vulns: Default::default(),
         catalog: Vec::new(),
         search: String::new(),
         searching: false,
@@ -97,6 +98,21 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
             while let Ok(ev) = rx.try_recv() {
                 match ev {
                     CmdEvent::Line(l) => app.output.push(l),
+                    CmdEvent::Vulns(name, list) => {
+                        if list.is_empty() {
+                            app.output.push(format!("{name}: no known vulnerabilities"));
+                        } else {
+                            app.output
+                                .push(format!("{name}: {} vulnerabilities", list.len()));
+                        }
+                        app.vulns.insert(name, list);
+                    }
+                    CmdEvent::VulnsMissing => {
+                        app.modal = Some(Modal {
+                            text: "brew vulns is not installed.\n\nInstall it now? (y/n)".into(),
+                            confirm: ModalAction::InstallVulns,
+                        });
+                    }
                     CmdEvent::Done(ok) => {
                         app.output.push(if ok {
                             "== done ==".into()

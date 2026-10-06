@@ -138,12 +138,17 @@ pub fn render(f: &mut Frame, app: &App) {
     // Details
     let details_text = match app.selected() {
         Some(p) => {
+            let vuln_line = match app.vulns.get(&p.name) {
+                Some(v) if v.is_empty() => "Vulnerabilities: none\n".to_string(),
+                Some(v) => format!("Vulnerabilities: {}\n", v.len()),
+                None => String::new(),
+            };
             let service_line = match &p.service_status {
                 Some(st) => format!("Service: {st} (press s to toggle)\n"),
                 None => String::new(),
             };
             format!(
-                "Name: {}\nType: {}\nVersion: {}\nInstalled: {}\nOutdated: {}\nPinned: {}\n{}\n{}",
+                "Name: {}\nType: {}\nVersion: {}\nInstalled: {}\nOutdated: {}\nPinned: {}\n{}\n{}\n{}",
                 p.name,
                 if p.cask { "cask" } else { "formula" },
                 p.version,
@@ -151,6 +156,7 @@ pub fn render(f: &mut Frame, app: &App) {
                 p.outdated,
                 p.pinned,
                 service_line,
+                vuln_line,
                 p.desc
             )
         }
@@ -297,6 +303,7 @@ mod tests {
             frame: 0,
             load_rx: None,
             services: Vec::new(),
+            vulns: Default::default(),
             catalog_rx: None,
             help: false,
         };
@@ -355,6 +362,7 @@ mod preview {
             frame: 3,
             load_rx: None,
             services: Vec::new(),
+            vulns: Default::default(),
             catalog_rx: None,
             help: false,
         };
