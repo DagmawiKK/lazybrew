@@ -226,6 +226,17 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyFlow {
         }
         KeyCode::Char('D') => spawn_brew(app, &["doctor".into()]),
         KeyCode::Char('C') => spawn_brew(app, &["config".into()]),
+        KeyCode::Char('W') => {
+            app.mode = AppMode::Confirm(modal(
+                format!(
+                    "Update lazybrew from {}?\n\n  git -C {:?} pull --ff-only\n  cargo install --path {:?} --force\n\n(y/n)",
+                    crate::app::SOURCE_DIR,
+                    crate::app::SOURCE_DIR,
+                    crate::app::SOURCE_DIR
+                ),
+                ModalAction::SelfUpdate,
+            ));
+        }
         KeyCode::Char('B') => {
             if let Some(path) = app.brewfile_path.clone() {
                 spawn_brew(
@@ -428,6 +439,7 @@ pub fn help_text() -> String {
         ("D", "brew doctor"),
         ("C", "brew config"),
         ("B", "brew bundle check (-f file)"),
+        ("W", "update lazybrew itself (git pull + cargo install)"),
         ("t", "theme picker"),
         ("S", "sort mode (natural/name/installs)"),
         ("e", "export Brewfile to ~/Brewfile"),
@@ -572,6 +584,21 @@ mod tests {
             "official tap should not warn: {}",
             modal.text
         );
+    }
+
+    #[test]
+    fn capital_w_confirms_self_update() {
+        let mut app = app_with(pkg("git", false, false));
+        handle_key(&mut app, key('W'));
+        let AppMode::Confirm(modal) = app.mode else {
+            panic!("expected confirm modal, got {:?}", app.mode);
+        };
+        assert!(
+            modal.text.contains("git") && modal.text.contains("cargo install"),
+            "self-update text should explain the steps: {}",
+            modal.text
+        );
+        assert!(matches!(modal.confirm, ModalAction::SelfUpdate));
     }
 
     #[test]

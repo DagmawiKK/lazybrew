@@ -177,6 +177,9 @@ pub fn is_official_tap(tap: &str) -> bool {
     tap == "homebrew/core" || tap.starts_with("homebrew/cask")
 }
 
+/// Directory lazybrew was built from; self-update pulls and reinstalls there.
+pub const SOURCE_DIR: &str = env!("CARGO_MANIFEST_DIR");
+
 impl App {
     /// Take and close the confirm dialog, if one is open.
     pub fn take_modal(&mut self) -> Option<Modal> {
@@ -205,6 +208,8 @@ pub enum ModalAction {
     BrewfileRemove,
     Tap(String),
     Untap(String),
+    /// Pull + rebuild lazybrew itself from its source checkout.
+    SelfUpdate,
 }
 
 impl App {
@@ -364,6 +369,17 @@ pub fn run_menu_action(app: &mut App, idx: usize) {
 }
 
 pub fn run_modal_action(app: &mut App, modal: &Modal) {
+    // Self-update does not go through brew; run git pull + cargo install.
+    if matches!(modal.confirm, ModalAction::SelfUpdate) {
+        spawn_shell_multi(
+            app,
+            vec![
+                format!("git -C {:?} pull --ff-only", SOURCE_DIR),
+                format!("cargo install --path {:?} --force", SOURCE_DIR),
+            ],
+        );
+        return;
+    }
     let commands: Vec<Vec<String>> = match &modal.confirm {
         ModalAction::Upgrade(name, cask) => {
             let mut a = vec!["upgrade".into()];
@@ -412,6 +428,7 @@ pub fn run_modal_action(app: &mut App, modal: &Modal) {
         }
         ModalAction::Tap(name) => vec![vec!["tap".into(), name.clone()]],
         ModalAction::Untap(name) => vec![vec!["untap".into(), name.clone()]],
+        ModalAction::SelfUpdate => unreachable!("handled before the brew match"),
     };
     spawn_brew_multi(app, commands);
 }
@@ -497,10 +514,24 @@ fn run_brew_command(tx: &mpsc::Sender<CmdEvent>, args: &[String]) -> bool {
     let mut cmd = std::process::Command::new("brew");
     cmd.args(args)
         .env("NONINTERACTIVE", "1")
-        .env("HOMEBREW_NO_AUTO_UPDATE", "0")
+        .env("HOMEBREW_NO_AUTO_UPDATE", "0");
+    stream_cmd(tx, &mut cmd)
+}
+
+/// Run one shell command line (`sh -c`), streaming output to `tx`.
+fn run_shell_command(tx: &mpsc::Sender<CmdEvent>, cmdline: &str) -> bool {
+    let mut cmd = std::process::Command::new("sh");
+    cmd.arg("-c").arg(cmdline);
+    stream_cmd(tx, &mut cmd)
+}
+
+/// Spawn `cmd`, stream stdout+stderr line-by-line to `tx`, and report success.
+fn stream_cmd(tx: &mpsc::Sender<CmdEvent>, cmd: &mut std::process::Command) -> bool {
+    let mut child = match cmd
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    let mut child = match cmd.spawn() {
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
         Ok(c) => c,
         Err(e) => {
             let _ = tx.send(CmdEvent::Line(format!("spawn error: {}", e)));
@@ -527,6 +558,26 @@ fn run_brew_command(tx: &mpsc::Sender<CmdEvent>, args: &[String]) -> bool {
     let _ = t1.join();
     let _ = t2.join();
     status
+}
+
+/// Run a sequence of shell command lines sequentially (`sh -c` each),
+/// streaming output to the same channel as brew commands.
+pub fn spawn_shell_multi(app: &mut App, commands: Vec<String>) {
+    app.output.clear();
+    for c in &commands {
+        app.output.push(format!("$ {c}"));
+    }
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut all_ok = true;
+        for cmdline in commands {
+            if !run_shell_command(&tx, &cmdline) {
+                all_ok = false;
+            }
+        }
+        let _ = tx.send(CmdEvent::Done(all_ok));
+    });
+    app.cmd_rx = Some(rx);
 }
 
 /// Scan the selected package for known vulnerabilities.
