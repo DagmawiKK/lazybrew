@@ -1,7 +1,7 @@
 //! Catalog: the full remote package universe from formulae.brew.sh,
 //! cached for 24h in the XDG cache directory.
 
-use crate::brew::Package;
+use crate::brew::{Package, RawDeprecation};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -19,6 +19,8 @@ struct RemoteFormula {
     #[serde(default)]
     desc: Option<String>,
     versions: RemoteVersions,
+    #[serde(flatten)]
+    dep: RawDeprecation,
 }
 
 #[derive(Deserialize)]
@@ -33,6 +35,8 @@ struct RemoteCask {
     desc: Option<String>,
     #[serde(default)]
     version: Option<String>,
+    #[serde(flatten)]
+    dep: RawDeprecation,
 }
 
 fn cache_dir() -> Option<std::path::PathBuf> {
@@ -103,6 +107,7 @@ fn merge_remote(installed: &[Package], f_data: &[u8], c_data: &[u8]) -> Result<V
             desc: f.desc.unwrap_or_default(),
             cask: false,
             service_status: None,
+            deprecation: f.dep.into_deprecation(),
         });
     }
     for c in remote_casks {
@@ -116,6 +121,7 @@ fn merge_remote(installed: &[Package], f_data: &[u8], c_data: &[u8]) -> Result<V
             desc: c.desc.unwrap_or_default(),
             cask: true,
             service_status: None,
+            deprecation: c.dep.into_deprecation(),
         });
     }
     pkgs.sort_by(|a, b| a.name.cmp(&b.name));
@@ -163,11 +169,38 @@ mod tests {
             installed_version: Some("1.9".into()),
             pinned: false,
             service_status: None,
+            deprecation: None,
         };
         let remote = r#"[{"name":"git","desc":"vcs","versions":{"stable":"2.0"}}]"#;
         let catalog = merge_remote(&[inst], remote.as_bytes(), b"[]").unwrap();
         assert_eq!(catalog.len(), 1);
         assert_eq!(catalog[0].installed_version.as_deref(), Some("1.9"));
         assert!(catalog[0].outdated);
+    }
+
+    #[test]
+    fn merge_captures_deprecation() {
+        let remote = r#"[{"name":"git","versions":{"stable":"2.0"},
+            "deprecated": true, "deprecation_reason": "use git-new",
+            "deprecation_replacement_formula": "git-new"}]"#;
+        let catalog = merge_remote(&[], remote.as_bytes(), b"[]").unwrap();
+        let d = catalog[0].deprecation.as_ref().expect("deprecated set");
+        use crate::brew::DeprecationKind;
+        assert_eq!(d.kind, DeprecationKind::Deprecated);
+        assert_eq!(d.reason, "use git-new");
+        assert_eq!(d.replacement.as_deref(), Some("git-new"));
+    }
+
+    #[test]
+    fn merge_captures_disabled_with_cask_replacement() {
+        let casks = r#"[{"token":"firefox","version":"1.0",
+            "disabled": true, "disable_reason": "unmaintained",
+            "disable_replacement_cask": "firefox-esr"}]"#;
+        let catalog = merge_remote(&[], b"[]", casks.as_bytes()).unwrap();
+        let d = catalog[0].deprecation.as_ref().expect("disabled set");
+        use crate::brew::DeprecationKind;
+        assert_eq!(d.kind, DeprecationKind::Disabled);
+        assert_eq!(d.reason, "unmaintained");
+        assert_eq!(d.replacement.as_deref(), Some("firefox-esr"));
     }
 }

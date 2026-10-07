@@ -177,6 +177,7 @@ impl App {
                     installed_version: None,
                     pinned: false,
                     service_status: None,
+                    deprecation: None,
                 });
             resolved.push(pkg);
         }
@@ -418,6 +419,7 @@ mod tests {
             installed_version: Some("1.0".into()),
             pinned: false,
             service_status: None,
+            deprecation: None,
         }
     }
 

@@ -1,6 +1,7 @@
 //! Rendering.
 
 use crate::app::{App, Panel, Section, spinner};
+use crate::brew::DeprecationKind;
 use crate::theme::{THEMES, Theme};
 use ratatui::{prelude::*, widgets::*};
 
@@ -175,15 +176,26 @@ fn render_table(f: &mut Frame, app: &App, area: Rect) {
         .enumerate()
         .map(|(i, p)| {
             let installed = p.installed_version.is_some() || p.service_status.is_some();
-            let marker = if installed {
+            let marker = if p
+                .deprecation
+                .as_ref()
+                .is_some_and(|d| d.kind == DeprecationKind::Disabled)
+            {
+                Span::styled("× ", Style::default().fg(th.bad))
+            } else if p.deprecation.is_some() {
+                Span::styled("! ", Style::default().fg(th.warn))
+            } else if installed {
                 Span::styled("● ", Style::default().fg(th.good))
             } else {
                 Span::styled("○ ", Style::default().fg(th.dim))
             };
-            let name_style = if p.outdated {
-                Style::default().fg(th.warn).bold()
-            } else {
-                Style::default().fg(th.fg)
+            let name_style = match &p.deprecation {
+                Some(d) if d.kind == DeprecationKind::Disabled => Style::default()
+                    .fg(th.bad)
+                    .add_modifier(Modifier::CROSSED_OUT | Modifier::BOLD),
+                Some(_) => Style::default().fg(th.warn).add_modifier(Modifier::BOLD),
+                None if p.outdated => Style::default().fg(th.warn).bold(),
+                None => Style::default().fg(th.fg),
             };
             let name = Cell::from(Line::from(vec![marker, Span::styled(&p.name, name_style)]));
 
@@ -306,6 +318,30 @@ fn render_details(f: &mut Frame, app: &App, area: Rect) {
                 ("current", Style::default().fg(th.good))
             };
             lines.push(kv_line(&th, "state       ", Span::raw(state), style));
+            if let Some(d) = &p.deprecation {
+                let (label, style) = match d.kind {
+                    DeprecationKind::Deprecated => {
+                        ("deprecated   ", Style::default().fg(th.warn).bold())
+                    }
+                    DeprecationKind::Disabled => {
+                        ("disabled    ", Style::default().fg(th.bad).bold())
+                    }
+                };
+                let reason = if d.reason.is_empty() {
+                    "(no reason given)".to_string()
+                } else {
+                    d.reason.clone()
+                };
+                lines.push(kv_line(&th, label, Span::raw(reason), style));
+                if let Some(repl) = &d.replacement {
+                    lines.push(kv_line(
+                        &th,
+                        "replaces    ",
+                        Span::raw(format!("→ {repl}")),
+                        style,
+                    ));
+                }
+            }
             if p.pinned {
                 lines.push(kv_line(
                     &th,
@@ -612,7 +648,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 mod tests {
     use super::*;
     use crate::app::{App, Panel};
-    use crate::brew::Package;
+    use crate::brew::{Deprecation, DeprecationKind, Package};
     use ratatui::backend::TestBackend;
 
     fn pkg(name: &str, outdated: bool, cask: bool) -> Package {
@@ -625,6 +661,7 @@ mod tests {
             installed_version: Some("1.0".into()),
             pinned: false,
             service_status: None,
+            deprecation: None,
         }
     }
 
@@ -691,6 +728,25 @@ mod tests {
     }
 
     #[test]
+    fn deprecated_package_badged_and_detailed() {
+        let mut app = test_app();
+        app.packages[0].deprecation = Some(Deprecation {
+            kind: DeprecationKind::Deprecated,
+            reason: "superseded".into(),
+            replacement: Some("git-new".into()),
+        });
+        app.apply_section();
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| render(f, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(text.contains("! "), "deprecated marker: {}", text);
+        assert!(text.contains("deprecated"), "reason line: {}", text);
+        assert!(text.contains("git-new"), "replacement: {}", text);
+    }
+
+    #[test]
     fn theme_picker_lists_all_themes() {
         let mut app = test_app();
         app.theme_picker = Some(1);
@@ -733,7 +789,7 @@ mod tests {
 mod preview {
     use super::*;
     use crate::app::{App, Panel};
-    use crate::brew::Package;
+    use crate::brew::{Deprecation, DeprecationKind, Package};
     use ratatui::backend::TestBackend;
 
     #[test]
@@ -747,6 +803,7 @@ mod preview {
             installed_version: Some("1.0".into()),
             pinned: false,
             service_status: None,
+            deprecation: None,
         };
         let mut app = App {
             sections: vec![

@@ -406,6 +406,7 @@ mod tests {
             installed_version: installed.then(|| "1.0".into()),
             pinned: false,
             service_status: None,
+            deprecation: None,
         }
     }
 

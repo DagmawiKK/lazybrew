@@ -15,6 +15,70 @@ pub struct Package {
     pub pinned: bool,
     /// Set when the package is a managed background service (section Services).
     pub service_status: Option<String>,
+    /// Deprecated or disabled, with reason and replacement, if any.
+    pub deprecation: Option<Deprecation>,
+}
+
+/// Whether a package is deprecated (still works, action discouraged) or
+/// disabled (no longer installable from this Homebrew version).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeprecationKind {
+    Deprecated,
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Deprecation {
+    pub kind: DeprecationKind,
+    pub reason: String,
+    /// Suggested replacement formula/cask, when Homebrew provides one.
+    pub replacement: Option<String>,
+}
+
+/// The standard Homebrew deprecation/disable fields, shared by the local
+/// `brew info --json=v2` output and the formulae.brew.sh API payloads.
+#[derive(Deserialize, Default)]
+pub struct RawDeprecation {
+    #[serde(default)]
+    pub deprecated: bool,
+    #[serde(default)]
+    pub deprecation_reason: Option<String>,
+    #[serde(default)]
+    pub deprecation_replacement_formula: Option<String>,
+    #[serde(default)]
+    pub deprecation_replacement_cask: Option<String>,
+    #[serde(default)]
+    pub disabled: bool,
+    #[serde(default)]
+    pub disable_reason: Option<String>,
+    #[serde(default)]
+    pub disable_replacement_formula: Option<String>,
+    #[serde(default)]
+    pub disable_replacement_cask: Option<String>,
+}
+
+impl RawDeprecation {
+    pub fn into_deprecation(self) -> Option<Deprecation> {
+        if self.disabled {
+            Some(Deprecation {
+                kind: DeprecationKind::Disabled,
+                reason: self.disable_reason.unwrap_or_default(),
+                replacement: self
+                    .disable_replacement_formula
+                    .or(self.disable_replacement_cask),
+            })
+        } else if self.deprecated {
+            Some(Deprecation {
+                kind: DeprecationKind::Deprecated,
+                reason: self.deprecation_reason.unwrap_or_default(),
+                replacement: self
+                    .deprecation_replacement_formula
+                    .or(self.deprecation_replacement_cask),
+            })
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -37,6 +101,8 @@ struct InstalledFormula {
     installed: Vec<InstalledRef>,
     #[serde(default)]
     pinned: bool,
+    #[serde(flatten)]
+    dep: RawDeprecation,
 }
 
 #[derive(Deserialize)]
@@ -57,6 +123,8 @@ struct InstalledCask {
     version: Option<String>,
     #[serde(default)]
     installed: Option<String>,
+    #[serde(flatten)]
+    dep: RawDeprecation,
 }
 
 #[derive(Deserialize)]
@@ -140,6 +208,7 @@ pub fn load_installed() -> Result<Vec<Package>> {
             outdated: is_outdated,
             pinned: f.pinned,
             service_status: None,
+            deprecation: f.dep.into_deprecation(),
         });
     }
     for c in installed.casks {
@@ -153,6 +222,7 @@ pub fn load_installed() -> Result<Vec<Package>> {
             outdated: is_outdated,
             pinned: false,
             service_status: None,
+            deprecation: c.dep.into_deprecation(),
         });
     }
     pkgs.sort_by(|a, b| a.name.cmp(&b.name));
@@ -181,6 +251,7 @@ pub fn load_services() -> Vec<Package> {
             installed_version: None,
             pinned: false,
             service_status: Some(s.status),
+            deprecation: None,
         })
         .collect();
     pkgs.sort_by(|a, b| a.name.cmp(&b.name));
@@ -205,6 +276,7 @@ pub fn load_taps() -> Vec<Package> {
             installed_version: Some("tapped".into()),
             pinned: false,
             service_status: None,
+            deprecation: None,
         })
         .collect();
     pkgs.sort_by(|a, c| a.name.cmp(&c.name));
