@@ -130,6 +130,10 @@ fn handle_menu(app: &mut App, key: KeyEvent) -> KeyFlow {
                 app.mode = AppMode::Normal;
                 run_menu_action(app, 5);
             }
+            'o' => {
+                app.mode = AppMode::Normal;
+                run_menu_action(app, 6);
+            }
             _ => {}
         },
         _ => {}
@@ -397,7 +401,10 @@ pub fn help_text() -> String {
         ("I", "install by typed name (all in Brewfile)"),
         ("R", "remove all (Brewfile section)"),
         ("i/r", "tap/untap (Taps section)"),
-        ("x", "action menu (upgrade/reinstall/remove/info/deps/pin)"),
+        (
+            "x",
+            "action menu (upgrade/reinstall/remove/info/deps/pin/home)",
+        ),
         ("t", "theme picker"),
         ("S", "sort mode (natural/name/installs)"),
         ("e", "export Brewfile to ~/Brewfile"),

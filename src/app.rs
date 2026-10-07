@@ -158,6 +158,7 @@ pub const MENU_ACTIONS: &[&str] = &[
     "i  Info",
     "d  Deps",
     "p  Pin/Unpin",
+    "o  Home",
 ];
 
 /// Convenience constructor for confirm dialogs.
@@ -348,6 +349,7 @@ pub fn run_menu_action(app: &mut App, idx: usize) {
             let verb = if p.pinned { "unpin" } else { "pin" };
             spawn_brew(app, &[verb.into(), p.name]);
         }
+        6 => spawn_brew(app, &["home".into(), p.name]),
         _ => {}
     }
 }
