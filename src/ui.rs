@@ -695,6 +695,7 @@ mod tests {
             pinned: false,
             service_status: None,
             deprecation: None,
+            tap: None,
         }
     }
 
@@ -848,6 +849,7 @@ mod preview {
             pinned: false,
             service_status: None,
             deprecation: None,
+            tap: None,
         };
         let mut app = App {
             sections: vec![

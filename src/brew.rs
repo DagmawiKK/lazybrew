@@ -17,6 +17,9 @@ pub struct Package {
     pub service_status: Option<String>,
     /// Deprecated or disabled, with reason and replacement, if any.
     pub deprecation: Option<Deprecation>,
+    /// The tap this package comes from (e.g. "homebrew/core"); only known
+    /// for catalog entries.
+    pub tap: Option<String>,
 }
 
 /// Whether a package is deprecated (still works, action discouraged) or
@@ -209,6 +212,7 @@ pub fn load_installed() -> Result<Vec<Package>> {
             pinned: f.pinned,
             service_status: None,
             deprecation: f.dep.into_deprecation(),
+            tap: None,
         });
     }
     for c in installed.casks {
@@ -223,6 +227,7 @@ pub fn load_installed() -> Result<Vec<Package>> {
             pinned: false,
             service_status: None,
             deprecation: c.dep.into_deprecation(),
+            tap: None,
         });
     }
     pkgs.sort_by(|a, b| a.name.cmp(&b.name));
@@ -252,6 +257,7 @@ pub fn load_services() -> Vec<Package> {
             pinned: false,
             service_status: Some(s.status),
             deprecation: None,
+            tap: None,
         })
         .collect();
     pkgs.sort_by(|a, b| a.name.cmp(&b.name));
@@ -277,6 +283,7 @@ pub fn load_taps() -> Vec<Package> {
             pinned: false,
             service_status: None,
             deprecation: None,
+            tap: None,
         })
         .collect();
     pkgs.sort_by(|a, c| a.name.cmp(&c.name));

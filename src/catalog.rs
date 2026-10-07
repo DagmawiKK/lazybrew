@@ -71,6 +71,8 @@ struct RemoteFormula {
     #[serde(default)]
     desc: Option<String>,
     versions: RemoteVersions,
+    #[serde(default)]
+    tap: Option<String>,
     #[serde(flatten)]
     dep: RawDeprecation,
 }
@@ -87,6 +89,8 @@ struct RemoteCask {
     desc: Option<String>,
     #[serde(default)]
     version: Option<String>,
+    #[serde(default)]
+    tap: Option<String>,
     #[serde(flatten)]
     dep: RawDeprecation,
 }
@@ -160,6 +164,7 @@ fn merge_remote(installed: &[Package], f_data: &[u8], c_data: &[u8]) -> Result<V
             cask: false,
             service_status: None,
             deprecation: f.dep.into_deprecation(),
+            tap: f.tap,
         });
     }
     for c in remote_casks {
@@ -174,6 +179,7 @@ fn merge_remote(installed: &[Package], f_data: &[u8], c_data: &[u8]) -> Result<V
             cask: true,
             service_status: None,
             deprecation: c.dep.into_deprecation(),
+            tap: c.tap,
         });
     }
     pkgs.sort_by(|a, b| a.name.cmp(&b.name));
@@ -223,6 +229,7 @@ mod tests {
             pinned: false,
             service_status: None,
             deprecation: None,
+            tap: None,
         };
         let remote = r#"[{"name":"git","desc":"vcs","versions":{"stable":"2.0"}}]"#;
         let catalog = merge_remote(&[inst], remote.as_bytes(), b"[]").unwrap();
@@ -255,6 +262,14 @@ mod tests {
         assert_eq!(d.kind, DeprecationKind::Disabled);
         assert_eq!(d.reason, "unmaintained");
         assert_eq!(d.replacement.as_deref(), Some("firefox-esr"));
+    }
+
+    #[test]
+    fn merge_captures_tap_from_remote() {
+        let remote = r#"[
+            {"name":"envsubst","versions":{"stable":"1.0"},"tap":"awslabs/git-secrets"}]"#;
+        let catalog = merge_remote(&[], remote.as_bytes(), b"[]").unwrap();
+        assert_eq!(catalog[0].tap.as_deref(), Some("awslabs/git-secrets"));
     }
 }
 

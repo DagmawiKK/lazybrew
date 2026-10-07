@@ -168,6 +168,13 @@ fn handle_theme_picker(app: &mut App, key: KeyEvent) -> KeyFlow {
     KeyFlow::Continue
 }
 
+fn install_confirm_text(p: &crate::brew::Package) -> String {
+    match p.tap.as_deref().filter(|t| !crate::app::is_official_tap(t)) {
+        Some(tap) => format!("Install '{}' from tap '{tap}' (unverified)? (y/n)", p.name),
+        None => format!("Install '{}'? (y/n)", p.name),
+    }
+}
+
 fn handle_normal(app: &mut App, key: KeyEvent) -> KeyFlow {
     match key.code {
         KeyCode::Char('/') => app.mode = AppMode::Search,
@@ -313,7 +320,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyFlow {
                     ));
                 } else {
                     app.mode = AppMode::Confirm(modal(
-                        format!("Install '{}'? (y/n)", p.name),
+                        install_confirm_text(&p),
                         ModalAction::Install(p.name, p.cask),
                     ));
                 }
@@ -451,6 +458,7 @@ mod tests {
             pinned: false,
             service_status: None,
             deprecation: None,
+            tap: None,
         }
     }
 
@@ -521,6 +529,48 @@ mod tests {
             app.output.iter().any(|l| l.contains("-f")),
             "should explain -f usage: {:?}",
             app.output
+        );
+    }
+
+    #[test]
+    fn install_from_untrusted_tap_warns() {
+        let mut app = app_with(pkg("envsubst", false, false));
+        app.catalog = vec![{
+            let mut p = pkg("envsubst", false, false);
+            p.tap = Some("awslabs/git-secrets".into());
+            p
+        }];
+        app.section_idx = 4; // Catalog
+        app.apply_section();
+        handle_key(&mut app, key('i'));
+        let AppMode::Confirm(modal) = app.mode else {
+            panic!("expected confirm modal, got {:?}", app.mode);
+        };
+        assert!(
+            modal.text.contains("awslabs") && modal.text.contains("unverified"),
+            "tap warning should be present: {}",
+            modal.text
+        );
+    }
+
+    #[test]
+    fn install_from_official_tap_stays_plain() {
+        let mut app = app_with(pkg("envsubst", false, false));
+        app.catalog = vec![{
+            let mut p = pkg("envsubst", false, false);
+            p.tap = Some("homebrew/core".into());
+            p
+        }];
+        app.section_idx = 4; // Catalog
+        app.apply_section();
+        handle_key(&mut app, key('i'));
+        let AppMode::Confirm(modal) = app.mode else {
+            panic!("expected confirm modal, got {:?}", app.mode);
+        };
+        assert!(
+            !modal.text.contains("unverified"),
+            "official tap should not warn: {}",
+            modal.text
         );
     }
 

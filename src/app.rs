@@ -171,6 +171,12 @@ pub fn modal(text: impl Into<String>, confirm: ModalAction) -> Modal {
     }
 }
 
+/// True for taps maintained by Homebrew itself. Everything else is an
+/// untrusted (third-party) tap that deserves a warning.
+pub fn is_official_tap(tap: &str) -> bool {
+    tap == "homebrew/core" || tap.starts_with("homebrew/cask")
+}
+
 impl App {
     /// Take and close the confirm dialog, if one is open.
     pub fn take_modal(&mut self) -> Option<Modal> {
@@ -279,6 +285,7 @@ impl App {
                     pinned: false,
                     service_status: None,
                     deprecation: None,
+                    tap: None,
                 });
             resolved.push(pkg);
         }
@@ -605,6 +612,7 @@ mod tests {
             pinned: false,
             service_status: None,
             deprecation: None,
+            tap: None,
         }
     }
 
