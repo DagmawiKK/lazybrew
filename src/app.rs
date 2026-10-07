@@ -55,12 +55,40 @@ pub enum Panel {
     List,
 }
 
+/// How the active section's list is ordered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortMode {
+    /// Source order (brew/API order).
+    Natural,
+    /// Case-insensitive alphabetical.
+    Name,
+    /// By 90-day install popularity, descending.
+    Installs,
+}
+
+impl SortMode {
+    pub const ALL: [SortMode; 3] = [SortMode::Natural, SortMode::Name, SortMode::Installs];
+
+    pub fn next(self) -> SortMode {
+        Self::ALL[(self as usize + 1) % Self::ALL.len()]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SortMode::Natural => "natural",
+            SortMode::Name => "name",
+            SortMode::Installs => "installs",
+        }
+    }
+}
+
 pub struct App {
     pub packages: Vec<Package>,
     pub filtered: Vec<Package>,
     pub section_idx: usize,
     pub list_idx: usize,
     pub panel: Panel,
+    pub sort: SortMode,
     pub leaves: Vec<String>,
     pub search: String,
     pub searching: bool,
@@ -145,6 +173,16 @@ impl App {
             })
             .cloned()
             .collect();
+        let installs = &self.installs;
+        match self.sort {
+            SortMode::Natural => {}
+            SortMode::Name => self.filtered.sort_by_key(|p| p.name.to_lowercase()),
+            SortMode::Installs => self.filtered.sort_by(|x, y| {
+                let ix = installs.get(&x.name).copied().unwrap_or(0);
+                let iy = installs.get(&y.name).copied().unwrap_or(0);
+                iy.cmp(&ix)
+            }),
+        }
         self.list_idx = 0;
     }
 
@@ -413,76 +451,6 @@ fn run_brew_command(tx: &mpsc::Sender<CmdEvent>, args: &[String]) -> bool {
     status
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn pkg(name: &str, outdated: bool, cask: bool) -> Package {
-        Package {
-            name: name.into(),
-            desc: format!("{} desc", name),
-            version: "1.0".into(),
-            cask,
-            outdated,
-            installed_version: Some("1.0".into()),
-            pinned: false,
-            service_status: None,
-            deprecation: None,
-        }
-    }
-
-    #[test]
-    fn filters_sections() {
-        let mut app = App {
-            sections: vec![
-                Section::Installed,
-                Section::Outdated,
-                Section::Casks,
-                Section::Leaves,
-                Section::Catalog,
-                Section::Services,
-            ],
-            brewfile_entries: Vec::new(),
-            brewfile: Vec::new(),
-            packages: vec![
-                pkg("git", false, false),
-                pkg("openssl", true, false),
-                pkg("firefox", true, true),
-            ],
-            filtered: Vec::new(),
-            section_idx: 1, // Outdated
-            list_idx: 0,
-            panel: Panel::Sidebar,
-            leaves: vec![],
-            catalog: Vec::new(),
-            installs: Default::default(),
-            search: String::new(),
-            searching: false,
-            installing: false,
-            install_input: String::new(),
-            output: Vec::new(),
-            cmd_rx: None,
-            modal: None,
-            menu: None,
-            frame: 0,
-            load_rx: None,
-            services: Vec::new(),
-            taps: Vec::new(),
-            vulns: Default::default(),
-            catalog_rx: None,
-            help: false,
-            theme: crate::theme::DEFAULT,
-            theme_picker: None,
-        };
-        app.apply_section();
-        assert_eq!(app.filtered.len(), 2);
-        app.search = "firef".into();
-        app.apply_section();
-        assert_eq!(app.filtered.len(), 1);
-        assert_eq!(app.filtered[0].name, "firefox");
-    }
-}
-
 /// Scan the selected package for known vulnerabilities.
 /// Streams human-readable output while scanning, then caches the JSON result.
 pub fn spawn_vuln_scan(app: &mut App, name: String) {
@@ -549,4 +517,144 @@ pub fn spawn_vuln_scan(app: &mut App, name: String) {
         ));
     });
     app.cmd_rx = Some(rx);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pkg(name: &str, outdated: bool, cask: bool) -> Package {
+        Package {
+            name: name.into(),
+            desc: format!("{} desc", name),
+            version: "1.0".into(),
+            cask,
+            outdated,
+            installed_version: Some("1.0".into()),
+            pinned: false,
+            service_status: None,
+            deprecation: None,
+        }
+    }
+
+    #[test]
+    fn filters_sections() {
+        let mut app = App {
+            sections: vec![
+                Section::Installed,
+                Section::Outdated,
+                Section::Casks,
+                Section::Leaves,
+                Section::Catalog,
+                Section::Services,
+            ],
+            brewfile_entries: Vec::new(),
+            brewfile: Vec::new(),
+            packages: vec![
+                pkg("git", false, false),
+                pkg("openssl", true, false),
+                pkg("firefox", true, true),
+            ],
+            filtered: Vec::new(),
+            section_idx: 1, // Outdated
+            list_idx: 0,
+            panel: Panel::Sidebar,
+            sort: SortMode::Natural,
+            leaves: vec![],
+            catalog: Vec::new(),
+            installs: Default::default(),
+            search: String::new(),
+            searching: false,
+            installing: false,
+            install_input: String::new(),
+            output: Vec::new(),
+            cmd_rx: None,
+            modal: None,
+            menu: None,
+            frame: 0,
+            load_rx: None,
+            services: Vec::new(),
+            taps: Vec::new(),
+            vulns: Default::default(),
+            catalog_rx: None,
+            help: false,
+            theme: crate::theme::DEFAULT,
+            theme_picker: None,
+        };
+        app.apply_section();
+        assert_eq!(app.filtered.len(), 2);
+        app.search = "firef".into();
+        app.apply_section();
+        assert_eq!(app.filtered.len(), 1);
+        assert_eq!(app.filtered[0].name, "firefox");
+    }
+
+    fn bare(packages: Vec<Package>) -> App {
+        let mut app = App {
+            sections: vec![
+                Section::Installed,
+                Section::Outdated,
+                Section::Casks,
+                Section::Leaves,
+                Section::Catalog,
+                Section::Services,
+            ],
+            brewfile_entries: Vec::new(),
+            brewfile: Vec::new(),
+            packages,
+            filtered: Vec::new(),
+            section_idx: 0,
+            list_idx: 0,
+            panel: Panel::Sidebar,
+            sort: SortMode::Natural,
+            leaves: vec![],
+            catalog: Vec::new(),
+            installs: Default::default(),
+            search: String::new(),
+            searching: false,
+            installing: false,
+            install_input: String::new(),
+            output: Vec::new(),
+            cmd_rx: None,
+            modal: None,
+            menu: None,
+            frame: 0,
+            load_rx: None,
+            services: Vec::new(),
+            taps: Vec::new(),
+            vulns: Default::default(),
+            catalog_rx: None,
+            help: false,
+            theme: crate::theme::DEFAULT,
+            theme_picker: None,
+        };
+        app.apply_section();
+        app
+    }
+
+    #[test]
+    fn sort_modes_reorder_the_list() {
+        let mut app = bare(vec![
+            pkg("openssl", false, false),
+            pkg("git", false, false),
+            pkg("zlib", false, false),
+        ]);
+        app.installs.insert("git".into(), 10);
+        app.installs.insert("zlib".into(), 100);
+
+        app.sort = SortMode::Name;
+        app.apply_section();
+        let names: Vec<&str> = app.filtered.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["git", "openssl", "zlib"]);
+
+        app.sort = SortMode::Installs;
+        app.apply_section();
+        let names: Vec<&str> = app.filtered.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["zlib", "git", "openssl"]);
+
+        app.sort = SortMode::Natural;
+        app.apply_section();
+        let names: Vec<&str> = app.filtered.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["openssl", "git", "zlib"]);
+    }
 }

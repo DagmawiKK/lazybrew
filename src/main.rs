@@ -8,7 +8,8 @@ mod ui;
 
 use anyhow::Result;
 use app::{
-    App, CmdEvent, Modal, ModalAction, Panel, Section, spawn_catalog_thread, spawn_load_thread,
+    App, CmdEvent, Modal, ModalAction, Panel, Section, SortMode, spawn_catalog_thread,
+    spawn_load_thread,
 };
 use crossterm::{
     event::{self, Event},
@@ -89,6 +90,7 @@ fn run_app(
         section_idx: 0,
         list_idx: 0,
         panel: Panel::Sidebar,
+        sort: SortMode::Natural,
         leaves: Vec::new(),
         catalog_rx: None,
         installs: Default::default(),

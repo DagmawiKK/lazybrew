@@ -1,6 +1,6 @@
 //! Rendering.
 
-use crate::app::{App, Panel, Section, spinner};
+use crate::app::{App, Panel, Section, SortMode, spinner};
 use crate::brew::DeprecationKind;
 use crate::catalog;
 use crate::theme::{THEMES, Theme};
@@ -171,7 +171,8 @@ fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_table(f: &mut Frame, app: &App, area: Rect) {
     let th = app.theme;
-    let show_installs = app.sections[app.section_idx] == Section::Catalog;
+    let show_installs =
+        app.sections[app.section_idx] == Section::Catalog || app.sort == SortMode::Installs;
     let rows: Vec<Row> = app
         .filtered
         .iter()
@@ -490,6 +491,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         ("u", "upgrade"),
         ("r", "remove"),
         ("A", "all"),
+        ("S", "sort"),
         ("x", "menu"),
         ("t", "theme"),
         ("?", "help"),
@@ -723,6 +725,7 @@ mod tests {
             section_idx: 0,
             list_idx: 0,
             panel: Panel::Sidebar,
+            sort: SortMode::Natural,
             leaves: vec![],
             catalog: Vec::new(),
             installs: Default::default(),
@@ -844,7 +847,7 @@ mod tests {
 mod preview {
     use super::*;
     use crate::app::{App, Panel};
-    use crate::brew::{Deprecation, DeprecationKind, Package};
+    use crate::brew::Package;
     use ratatui::backend::TestBackend;
 
     #[test]
@@ -881,6 +884,7 @@ mod preview {
             section_idx: 0,
             list_idx: 1,
             panel: Panel::List,
+            sort: SortMode::Natural,
             leaves: vec!["git".into(), "zsh".into()],
             catalog: Vec::new(),
             installs: Default::default(),

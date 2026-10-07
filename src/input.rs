@@ -187,6 +187,11 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
                 spawn_brew(app, &["services".into(), verb.into(), p.name]);
             }
         }
+        KeyCode::Char('S') => {
+            app.sort = app.sort.next();
+            app.apply_section();
+            app.output.push(format!("sort: {}", app.sort.label()));
+        }
         KeyCode::Char('t') => {
             app.theme_picker = Some(crate::theme::index_of(&app.theme));
         }
@@ -380,6 +385,7 @@ pub fn help_text() -> String {
         ("i/r", "tap/untap (Taps section)"),
         ("x", "action menu (info/deps/pin)"),
         ("t", "theme picker"),
+        ("S", "sort mode (natural/name/installs)"),
         ("e", "export Brewfile to ~/Brewfile"),
         ("?", "this help"),
         ("q", "quit"),
@@ -394,6 +400,7 @@ pub fn help_text() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::SortMode;
     use crate::brew::Package;
 
     fn pkg(name: &str, installed: bool, cask: bool) -> Package {
@@ -427,6 +434,7 @@ mod tests {
             section_idx: 0,
             list_idx: 0,
             panel: Panel::Sidebar,
+            sort: SortMode::Natural,
             leaves: Vec::new(),
             catalog: Vec::new(),
             installs: Default::default(),
@@ -454,6 +462,18 @@ mod tests {
 
     fn key(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::empty())
+    }
+
+    #[test]
+    fn shift_s_cycles_sort_mode() {
+        let mut app = app_with(pkg("zlib", false, false));
+        assert_eq!(app.sort, SortMode::Natural);
+        handle_key(&mut app, key('S'));
+        assert_eq!(app.sort, SortMode::Name);
+        handle_key(&mut app, key('S'));
+        assert_eq!(app.sort, SortMode::Installs);
+        handle_key(&mut app, key('S'));
+        assert_eq!(app.sort, SortMode::Natural);
     }
 
     #[test]

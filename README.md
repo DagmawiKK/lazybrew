@@ -13,6 +13,10 @@ services, taps, and Brewfiles — all without leaving the terminal.
 - **Catalog**: browse all 15k+ remote formulae and casks (downloaded once a
   day, cached in the XDG cache dir, loaded in the background)
 - Live search with `/`, install anything with `i`
+- **Status badges**: deprecated (`!`, yellow) and disabled (`×`, red
+  strikethrough) packages with reason + replacement suggestion in details
+- **Popularity**: 90-day install analytics (cached daily) shown as a `90d`
+  column in Catalog and in details; sort any list by installs with `S`
 - Upgrade / remove / upgrade-all / cleanup / autoremove with confirmation
   dialogs and streamed command output
 - **Services**: list and start/stop `brew services`
@@ -44,6 +48,7 @@ services, taps, and Brewfiles — all without leaving the terminal.
 | `K` | `brew cleanup` |
 | `n` | `brew autoremove` |
 | `s` | start/stop service (Services section) |
+| `S` | cycle sort mode — natural / name / installs (90-day) |
 | `v` | vulnerability scan (formulae) |
 | `x` | action menu (info/deps/pin) |
 | `t` | theme picker (6 built-in themes, persisted) |
