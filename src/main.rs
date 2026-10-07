@@ -91,6 +91,7 @@ fn run_app(
         panel: Panel::Sidebar,
         leaves: Vec::new(),
         catalog_rx: None,
+        installs: Default::default(),
         services: Vec::new(),
         taps: Vec::new(),
         vulns: Default::default(),
@@ -141,12 +142,13 @@ fn run_app(
 
         let mut catalog_loaded = None;
         if let Some(rx) = &app.catalog_rx
-            && let Ok(cat) = rx.try_recv()
+            && let Ok(res) = rx.try_recv()
         {
-            catalog_loaded = Some(cat);
+            catalog_loaded = Some(res);
         }
-        if let Some(cat) = catalog_loaded {
+        if let Some((cat, installs)) = catalog_loaded {
             app.catalog = cat;
+            app.installs = installs;
             app.catalog_rx = None;
             app.refresh_brewfile();
             app.apply_section();

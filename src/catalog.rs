@@ -10,8 +10,60 @@ use std::time::{Duration, SystemTime};
 
 const FORMULAE_URL: &str = "https://formulae.brew.sh/api/formula.json";
 const CASK_URL: &str = "https://formulae.brew.sh/api/cask.json";
+const FORMULA_ANALYTICS_URL: &str = "https://formulae.brew.sh/api/analytics/install/90d.json";
+const CASK_ANALYTICS_URL: &str = "https://formulae.brew.sh/api/analytics/cask-install/90d.json";
 const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MIN_SIZE: i64 = 1024;
+
+/// One row of the 90-day analytics payloads.
+#[derive(Deserialize)]
+struct AnalyticsItem {
+    #[serde(default)]
+    formula: Option<String>,
+    #[serde(default)]
+    cask: Option<String>,
+    /// Comma-formatted count, e.g. "1,401,497".
+    count: String,
+}
+
+#[derive(Deserialize)]
+struct AnalyticsResponse {
+    items: Vec<AnalyticsItem>,
+}
+
+/// Parse the 90-day install analytics into `name -> install count`.
+fn load_installs() -> HashMap<String, u64> {
+    let f = cached_fetch(FORMULA_ANALYTICS_URL, "install-90d.json").ok();
+    let c = cached_fetch(CASK_ANALYTICS_URL, "cask-install-90d.json").ok();
+    let mut map = HashMap::new();
+    for data in [f, c].into_iter().flatten() {
+        let Ok(resp) = serde_json::from_slice::<AnalyticsResponse>(&data) else {
+            continue;
+        };
+        for item in resp.items {
+            let Some(name) = item.formula.or(item.cask) else {
+                continue;
+            };
+            let base = name.split(' ').next().unwrap_or_default().to_string();
+            if base.is_empty() {
+                continue;
+            }
+            let count = item.count.replace(',', "").parse::<u64>().unwrap_or(0);
+            *map.entry(base).or_insert(0) += count;
+        }
+    }
+    map
+}
+
+/// Compact human-readable count: 999, 12.3k, 1.4M.
+pub fn format_count(n: u64) -> String {
+    match n {
+        0 => "0".into(),
+        1..=999 => n.to_string(),
+        1_000..=999_999 => format!("{:.1}k", n as f64 / 1000.0),
+        _ => format!("{:.1}M", n as f64 / 1_000_000.0),
+    }
+}
 
 #[derive(Deserialize)]
 struct RemoteFormula {
@@ -128,9 +180,9 @@ fn merge_remote(installed: &[Package], f_data: &[u8], c_data: &[u8]) -> Result<V
     Ok(pkgs)
 }
 
-/// Load the remote catalog and merge installed status into it.
-/// Returns a single package vector sorted by name.
-pub fn load_catalog(installed: &[Package]) -> Result<Vec<Package>> {
+/// Load the remote catalog (merged with installed status) plus 90-day
+/// install analytics. Both are cached for 24h.
+pub fn load_catalog(installed: &[Package]) -> Result<(Vec<Package>, HashMap<String, u64>)> {
     let (f_data, c_data) = std::thread::scope(|s| {
         let a = s.spawn(|| cached_fetch(FORMULAE_URL, "formula.json"));
         let b = s.spawn(|| cached_fetch(CASK_URL, "cask.json"));
@@ -140,7 +192,8 @@ pub fn load_catalog(installed: &[Package]) -> Result<Vec<Package>> {
         )
     });
 
-    merge_remote(installed, &f_data?, &c_data?)
+    let pkgs = merge_remote(installed, &f_data?, &c_data?)?;
+    Ok((pkgs, load_installs()))
 }
 
 #[cfg(test)]
@@ -203,4 +256,23 @@ mod tests {
         assert_eq!(d.reason, "unmaintained");
         assert_eq!(d.replacement.as_deref(), Some("firefox-esr"));
     }
+}
+
+#[test]
+fn format_count_compact() {
+    assert_eq!(format_count(0), "0");
+    assert_eq!(format_count(999), "999");
+    assert_eq!(format_count(12_345), "12.3k");
+    assert_eq!(format_count(1_401_497), "1.4M");
+}
+
+#[test]
+fn parses_analytics_payload() {
+    let data = br#"{"items":[
+            {"formula":"git","count":"65,531"},
+            {"formula":"git --HEAD","count":"105"},
+            {"cask":"codex","count":"335,974"}]}"#;
+    let resp: AnalyticsResponse = serde_json::from_slice(data).unwrap();
+    assert_eq!(resp.items.len(), 3);
+    assert_eq!(resp.items[0].formula.as_deref(), Some("git"));
 }

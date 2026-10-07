@@ -66,8 +66,10 @@ pub struct App {
     pub menu: Option<usize>,
     pub frame: usize,
     pub load_rx: Option<mpsc::Receiver<LoadResult>>,
-    pub catalog_rx: Option<mpsc::Receiver<Vec<Package>>>,
+    pub catalog_rx: Option<mpsc::Receiver<(Vec<Package>, std::collections::HashMap<String, u64>)>>,
     pub catalog: Vec<Package>,
+    /// 90-day install analytics, by package name.
+    pub installs: std::collections::HashMap<String, u64>,
     pub taps: Vec<Package>,
     pub services: Vec<Package>,
     pub vulns: std::collections::HashMap<String, Vec<String>>,
@@ -211,7 +213,9 @@ pub fn spawn_load_thread() -> mpsc::Receiver<LoadResult> {
 
 /// Spawn the catalog fetch separately so the installed list is never
 /// blocked behind the (much larger) remote catalog download.
-pub fn spawn_catalog_thread(installed: Vec<Package>) -> mpsc::Receiver<Vec<Package>> {
+pub fn spawn_catalog_thread(
+    installed: Vec<Package>,
+) -> mpsc::Receiver<(Vec<Package>, std::collections::HashMap<String, u64>)> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let catalog = crate::catalog::load_catalog(&installed).unwrap_or_default();
@@ -447,6 +451,7 @@ mod tests {
             panel: Panel::Sidebar,
             leaves: vec![],
             catalog: Vec::new(),
+            installs: Default::default(),
             search: String::new(),
             searching: false,
             installing: false,

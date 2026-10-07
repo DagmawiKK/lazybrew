@@ -429,6 +429,7 @@ mod tests {
             panel: Panel::Sidebar,
             leaves: Vec::new(),
             catalog: Vec::new(),
+            installs: Default::default(),
             taps: Vec::new(),
             services: Vec::new(),
             vulns: Default::default(),

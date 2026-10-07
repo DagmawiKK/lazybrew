@@ -2,6 +2,7 @@
 
 use crate::app::{App, Panel, Section, spinner};
 use crate::brew::DeprecationKind;
+use crate::catalog;
 use crate::theme::{THEMES, Theme};
 use ratatui::{prelude::*, widgets::*};
 
@@ -170,6 +171,7 @@ fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_table(f: &mut Frame, app: &App, area: Rect) {
     let th = app.theme;
+    let show_installs = app.sections[app.section_idx] == Section::Catalog;
     let rows: Vec<Row> = app
         .filtered
         .iter()
@@ -215,12 +217,28 @@ fn render_table(f: &mut Frame, app: &App, area: Rect) {
             };
             let kind = Cell::from(Span::styled(tag, Style::default().fg(tag_style)));
 
+            let installs = if show_installs {
+                let n = app.installs.get(&p.name).copied().unwrap_or(0);
+                let txt = if n == 0 {
+                    "-".to_string()
+                } else {
+                    catalog::format_count(n)
+                };
+                Some(Cell::from(Span::styled(txt, Style::default().fg(th.dim))))
+            } else {
+                None
+            };
+
             let band = if i % 2 == 1 {
                 Style::default().bg(th.band_bg)
             } else {
                 Style::default()
             };
-            Row::new(vec![name, version, kind]).style(band)
+            let mut cells = vec![name, version, kind];
+            if let Some(c) = installs {
+                cells.push(c);
+            }
+            Row::new(cells).style(band)
         })
         .collect();
 
@@ -233,34 +251,47 @@ fn render_table(f: &mut Frame, app: &App, area: Rect) {
 
     let focused = app.panel == Panel::List;
     let section_tint = section_color(&th, app.sections[app.section_idx]);
-    let table = Table::new(
-        rows,
-        [
-            Constraint::Min(20),
-            Constraint::Length(14),
-            Constraint::Length(6),
-        ],
-    )
-    .header(
-        Row::new(vec![" Name", "Version", "Type"]).style(
-            Style::default()
-                .fg(th.accent)
-                .bg(th.bar_bg)
-                .add_modifier(Modifier::BOLD),
-        ),
-    )
-    .block(
-        th.panel_block(
-            &format!(" {} ", app.sections[app.section_idx].title()),
-            focused,
+    let (widths, header): (Vec<Constraint>, Vec<&str>) = if show_installs {
+        (
+            vec![
+                Constraint::Min(20),
+                Constraint::Length(14),
+                Constraint::Length(6),
+                Constraint::Length(9),
+            ],
+            vec![" Name", "Version", "Type", "90d"],
         )
-        .title_style(
-            Style::default()
-                .fg(section_tint)
-                .add_modifier(Modifier::BOLD),
-        ),
-    )
-    .row_highlight_style(Style::default().bg(hl_bg).add_modifier(Modifier::BOLD));
+    } else {
+        (
+            vec![
+                Constraint::Min(20),
+                Constraint::Length(14),
+                Constraint::Length(6),
+            ],
+            vec![" Name", "Version", "Type"],
+        )
+    };
+    let table = Table::new(rows, widths)
+        .header(
+            Row::new(header).style(
+                Style::default()
+                    .fg(th.accent)
+                    .bg(th.bar_bg)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        )
+        .block(
+            th.panel_block(
+                &format!(" {} ", app.sections[app.section_idx].title()),
+                focused,
+            )
+            .title_style(
+                Style::default()
+                    .fg(section_tint)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        )
+        .row_highlight_style(Style::default().bg(hl_bg).add_modifier(Modifier::BOLD));
 
     let mut tstate = TableState::default();
     tstate.select(if app.filtered.is_empty() {
@@ -318,6 +349,16 @@ fn render_details(f: &mut Frame, app: &App, area: Rect) {
                 ("current", Style::default().fg(th.good))
             };
             lines.push(kv_line(&th, "state       ", Span::raw(state), style));
+            if let Some(n) = app.installs.get(&p.name).copied()
+                && n > 0
+            {
+                lines.push(kv_line(
+                    &th,
+                    "installs    ",
+                    Span::raw(format!("{} (90d)", catalog::format_count(n))),
+                    Style::default().fg(th.dim),
+                ));
+            }
             if let Some(d) = &p.deprecation {
                 let (label, style) = match d.kind {
                     DeprecationKind::Deprecated => {
@@ -684,6 +725,7 @@ mod tests {
             panel: Panel::Sidebar,
             leaves: vec![],
             catalog: Vec::new(),
+            installs: Default::default(),
             taps: Vec::new(),
             services: Vec::new(),
             vulns: Default::default(),
@@ -725,6 +767,19 @@ mod tests {
             "blank cell keeps theme background"
         );
         assert_eq!(buf[(0, 0)].bg, th.bar_bg, "header band uses bar background");
+    }
+
+    #[test]
+    fn details_shows_installs_count() {
+        let mut app = test_app();
+        app.installs.insert("git".into(), 1_401_497);
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| render(f, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(text.contains("1.4M"), "installs count: {}", text);
+        assert!(text.contains("90d"), "label: {}", text);
     }
 
     #[test]
@@ -828,6 +883,7 @@ mod preview {
             panel: Panel::List,
             leaves: vec!["git".into(), "zsh".into()],
             catalog: Vec::new(),
+            installs: Default::default(),
             taps: Vec::new(),
             services: Vec::new(),
             vulns: Default::default(),
