@@ -16,7 +16,7 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use input::{KeyFlow, handle_key};
+use input::{KeyFlow, handle_key, handle_mouse};
 use ratatui::prelude::*;
 use std::io;
 use std::time::Duration;
@@ -52,6 +52,7 @@ fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, event::EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -59,6 +60,7 @@ fn main() -> Result<()> {
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), event::DisableMouseCapture)?;
     terminal.show_cursor()?;
     res
 }
@@ -193,12 +195,16 @@ fn run_app(
             app.load_rx = Some(spawn_load_thread());
         }
 
-        if event::poll(Duration::from_millis(100))?
-            && let Event::Key(key) = event::read()?
-        {
-            match handle_key(&mut app, key) {
-                KeyFlow::Quit => return Ok(()),
-                KeyFlow::Continue => {}
+        if event::poll(Duration::from_millis(100))? {
+            match event::read()? {
+                Event::Key(key) => match handle_key(&mut app, key) {
+                    KeyFlow::Quit => return Ok(()),
+                    KeyFlow::Continue => {}
+                },
+                Event::Mouse(me) => {
+                    let _ = handle_mouse(&mut app, me);
+                }
+                _ => {}
             }
         }
     }

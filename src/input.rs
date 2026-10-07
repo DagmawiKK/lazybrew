@@ -3,11 +3,51 @@
 use crate::app::{
     App, AppMode, ModalAction, Panel, Section, modal, run_menu_action, run_modal_action, spawn_brew,
 };
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
 pub enum KeyFlow {
     Continue,
     Quit,
+}
+
+/// Translate a mouse event into navigation. Hit-testing matches `ui.rs`:
+/// the sidebar is 24 columns wide, starting at row 2 (border) with section
+/// rows from 3; the list table's data rows begin at row 4.
+pub fn handle_mouse(app: &mut App, e: MouseEvent) -> KeyFlow {
+    // Overlays and prompts own input; the pointer only navigates in Normal.
+    if !matches!(app.mode, AppMode::Normal) {
+        return KeyFlow::Continue;
+    }
+    match e.kind {
+        MouseEventKind::ScrollUp => {
+            if app.panel == Panel::List {
+                app.list_idx = app.list_idx.saturating_sub(1);
+            }
+        }
+        MouseEventKind::ScrollDown => {
+            if app.panel == Panel::List && app.list_idx + 1 < app.filtered.len() {
+                app.list_idx += 1;
+            }
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            let col = e.column as i32;
+            let row = e.row as i32;
+            if col < 24 {
+                // Sidebar: pick the section under the click, then jump to the list.
+                let idx = ((row - 3).clamp(0, app.sections.len() as i32 - 1)) as usize;
+                if idx != app.section_idx {
+                    app.section_idx = idx;
+                    app.apply_section();
+                }
+                app.panel = Panel::List;
+            } else if row >= 4 && !app.filtered.is_empty() {
+                app.list_idx = ((row - 4) as usize).min(app.filtered.len() - 1);
+                app.panel = Panel::List;
+            }
+        }
+        _ => {}
+    }
+    KeyFlow::Continue
 }
 
 pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
@@ -515,6 +555,76 @@ mod tests {
 
     fn key(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::empty())
+    }
+
+    fn mouse(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::empty(),
+        }
+    }
+
+    fn app_with_packages(names: &[&str]) -> App {
+        let mut app = app_with(pkg(names[0], false, false));
+        for n in &names[1..] {
+            app.packages.push(pkg(n, false, false));
+        }
+        app.apply_section();
+        app
+    }
+
+    #[test]
+    fn wheel_scrolls_the_list_down_and_up() {
+        let mut app = app_with_packages(&["git", "wget", "zlib"]);
+        handle_key(&mut app, key('l')); // focus the list
+        assert_eq!(app.list_idx, 0);
+        handle_mouse(&mut app, mouse(MouseEventKind::ScrollDown, 50, 30));
+        assert_eq!(app.list_idx, 1);
+        handle_mouse(&mut app, mouse(MouseEventKind::ScrollDown, 50, 30));
+        assert_eq!(app.list_idx, 2);
+        // Bottom: wheel keeps it clamped.
+        handle_mouse(&mut app, mouse(MouseEventKind::ScrollDown, 50, 30));
+        assert_eq!(app.list_idx, 2);
+        handle_mouse(&mut app, mouse(MouseEventKind::ScrollUp, 50, 30));
+        assert_eq!(app.list_idx, 1);
+    }
+
+    #[test]
+    fn click_selects_the_row_under_the_cursor() {
+        let mut app = app_with_packages(&["git", "wget", "zlib"]);
+        handle_mouse(
+            &mut app,
+            mouse(MouseEventKind::Down(MouseButton::Left), 30, 6),
+        );
+        assert_eq!(
+            app.list_idx, 2,
+            "data row 0 is screen row 4, row 6 -> idx 2"
+        );
+        assert_eq!(app.panel, Panel::List);
+    }
+
+    #[test]
+    fn click_on_the_sidebar_switches_section() {
+        let mut app = app_with_packages(&["git", "wget", "zlib"]);
+        // Row 4 -> sidebar item 1 (Outdated).
+        handle_mouse(
+            &mut app,
+            mouse(MouseEventKind::Down(MouseButton::Left), 5, 4),
+        );
+        assert_eq!(app.section_idx, 1);
+        assert_eq!(app.panel, Panel::List);
+        assert_eq!(app.sections[1], Section::Outdated);
+    }
+
+    #[test]
+    fn mouse_is_ignored_while_an_overlay_is_open() {
+        let mut app = app_with_packages(&["git", "wget", "zlib"]);
+        handle_key(&mut app, key('/')); // search mode
+        handle_mouse(&mut app, mouse(MouseEventKind::ScrollDown, 50, 30));
+        assert_eq!(app.list_idx, 0, "scroll must not leak into search mode");
+        assert!(matches!(app.mode, AppMode::Search));
     }
 
     #[test]

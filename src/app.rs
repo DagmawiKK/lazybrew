@@ -22,7 +22,7 @@ pub type Popularity = std::collections::HashMap<String, u64>;
 pub type CatalogData = (Vec<Package>, Popularity);
 
 /// Sections shown in the lazygit-style left sidebar.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Section {
     Installed,
     Outdated,
@@ -49,7 +49,7 @@ impl Section {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Panel {
     Sidebar,
     List,

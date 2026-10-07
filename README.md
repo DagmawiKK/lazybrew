@@ -41,6 +41,7 @@ services, taps, and Brewfiles — all without leaving the terminal.
 | Key | Action |
 |-----|--------|
 | `j`/`k`, arrows | navigate |
+| mouse | click a row or section, scroll the list with the wheel |
 | `h`/`l`, tab | switch panel |
 | `/` | search |
 | `esc` | clear search / close |
