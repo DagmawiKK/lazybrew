@@ -15,6 +15,12 @@ pub enum CmdEvent {
 
 pub type LoadResult = (Vec<Package>, Vec<String>, Vec<Package>, Vec<Package>);
 
+/// 90-day install analytics, `name -> install count`.
+pub type Popularity = std::collections::HashMap<String, u64>;
+
+/// The catalog payload streamed over its own channel.
+pub type CatalogData = (Vec<Package>, Popularity);
+
 /// Sections shown in the lazygit-style left sidebar.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Section {
@@ -66,10 +72,10 @@ pub struct App {
     pub menu: Option<usize>,
     pub frame: usize,
     pub load_rx: Option<mpsc::Receiver<LoadResult>>,
-    pub catalog_rx: Option<mpsc::Receiver<(Vec<Package>, std::collections::HashMap<String, u64>)>>,
+    pub catalog_rx: Option<mpsc::Receiver<CatalogData>>,
     pub catalog: Vec<Package>,
     /// 90-day install analytics, by package name.
-    pub installs: std::collections::HashMap<String, u64>,
+    pub installs: Popularity,
     pub taps: Vec<Package>,
     pub services: Vec<Package>,
     pub vulns: std::collections::HashMap<String, Vec<String>>,
@@ -213,9 +219,7 @@ pub fn spawn_load_thread() -> mpsc::Receiver<LoadResult> {
 
 /// Spawn the catalog fetch separately so the installed list is never
 /// blocked behind the (much larger) remote catalog download.
-pub fn spawn_catalog_thread(
-    installed: Vec<Package>,
-) -> mpsc::Receiver<(Vec<Package>, std::collections::HashMap<String, u64>)> {
+pub fn spawn_catalog_thread(installed: Vec<Package>) -> mpsc::Receiver<CatalogData> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let catalog = crate::catalog::load_catalog(&installed).unwrap_or_default();
