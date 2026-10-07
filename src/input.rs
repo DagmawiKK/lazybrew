@@ -88,6 +88,29 @@ fn handle_search(app: &mut App, key: KeyEvent) -> KeyFlow {
     KeyFlow::Continue
 }
 
+/// Candidate names for the type-a-name prompt: prefix matches against the
+/// current section's data (catalog when loaded, else installed packages;
+/// tap names in the Taps section). Sorted, deduped, capped for the hint row.
+pub fn completions(app: &App) -> Vec<String> {
+    let source: &[crate::brew::Package] = if app.sections[app.section_idx] == Section::Taps {
+        &app.taps
+    } else if !app.catalog.is_empty() {
+        &app.catalog
+    } else {
+        &app.packages
+    };
+    let q = app.prompt_buffer.to_lowercase();
+    let mut names: Vec<String> = source
+        .iter()
+        .map(|p| p.name.clone())
+        .filter(|n| n.to_lowercase().starts_with(&q))
+        .collect();
+    names.sort();
+    names.dedup();
+    names.truncate(9);
+    names
+}
+
 fn handle_prompt(app: &mut App, key: KeyEvent) -> KeyFlow {
     match key.code {
         KeyCode::Enter => {
@@ -101,6 +124,14 @@ fn handle_prompt(app: &mut App, key: KeyEvent) -> KeyFlow {
                     ModalAction::Install(name.clone(), false)
                 };
                 app.mode = AppMode::Confirm(modal(format!("Install '{}'? (y/n)", name), action));
+            }
+        }
+        KeyCode::Tab => {
+            let cands = completions(app);
+            if let Some(pos) = cands.iter().position(|c| *c == app.prompt_buffer) {
+                app.prompt_buffer = cands[(pos + 1) % cands.len()].clone();
+            } else if let Some(first) = cands.first() {
+                app.prompt_buffer = first.clone();
             }
         }
         KeyCode::Esc => {
@@ -478,7 +509,10 @@ pub fn help_text() -> String {
         ("n", "brew autoremove"),
         ("s", "start/stop service (Services section)"),
         ("v", "vulnerability scan (formulae)"),
-        ("I", "install by typed name (all in Brewfile)"),
+        (
+            "I",
+            "install by typed name (tab completes, all in Brewfile)",
+        ),
         ("R", "remove all (Brewfile section)"),
         ("i/r", "tap/untap (Taps section)"),
         (
@@ -842,6 +876,41 @@ mod tests {
             ModalAction::Install(name, _) => assert_eq!(name, "wget"),
             _ => panic!("expected Install action"),
         }
+    }
+
+    #[test]
+    fn tab_completes_the_unique_candidate() {
+        let mut app = app_with(pkg("wget", false, false));
+        handle_key(&mut app, key('I'));
+        for c in "wg".chars() {
+            handle_key(&mut app, key(c));
+        }
+        handle_key(&mut app, KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()));
+        assert_eq!(app.prompt_buffer, "wget");
+    }
+
+    #[test]
+    fn tab_cycles_through_candidates() {
+        let mut app = app_with_packages(&["wget", "wget2", "git"]);
+        handle_key(&mut app, key('I'));
+        for c in "wg".chars() {
+            handle_key(&mut app, key(c));
+        }
+        handle_key(&mut app, KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()));
+        assert_eq!(app.prompt_buffer, "wget");
+        handle_key(&mut app, KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()));
+        assert_eq!(app.prompt_buffer, "wget2");
+    }
+
+    #[test]
+    fn tab_with_empty_buffer_fills_first_candidate() {
+        let mut app = app_with_packages(&["zlib", "git", "wget"]);
+        handle_key(&mut app, key('I'));
+        handle_key(&mut app, KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()));
+        assert_eq!(
+            app.prompt_buffer, "git",
+            "sorted first name fills the buffer"
+        );
     }
 
     #[test]

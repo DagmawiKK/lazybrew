@@ -104,11 +104,19 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
 fn render_search_row(f: &mut Frame, app: &App, area: Rect) {
     let th = app.theme;
     match app.mode {
-        AppMode::Prompt => f.render_widget(
-            Paragraph::new(format!(" install ▸ {}_ ", app.prompt_buffer))
-                .style(Style::default().fg(th.good).bg(th.bar_bg).bold()),
-            area,
-        ),
+        AppMode::Prompt => {
+            let hint = crate::input::completions(app);
+            let hint_txt = if hint.is_empty() {
+                String::new()
+            } else {
+                format!(" ⇥ {}", hint.join(" "))
+            };
+            f.render_widget(
+                Paragraph::new(format!(" install ▸ {}_{} ", app.prompt_buffer, hint_txt))
+                    .style(Style::default().fg(th.good).bg(th.bar_bg).bold()),
+                area,
+            );
+        }
         AppMode::Search => f.render_widget(
             Paragraph::new(format!(" search ▸ /{}_ ", app.search))
                 .style(Style::default().fg(th.warn).bg(th.bar_bg).bold()),

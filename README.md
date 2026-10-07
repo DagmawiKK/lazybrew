@@ -61,7 +61,7 @@ services, taps, and Brewfiles — all without leaving the terminal.
 | `C` | `brew config` |
 | `B` | `brew bundle check` (needs `-f`) |
 | `t` | theme picker (6 built-in themes, persisted) |
-| `I` | install by typed name (install-all in Brewfile section) |
+| `I` | install by typed name, tab completes against the catalog (install-all in Brewfile) |
 | `R` | remove all (Brewfile section) |
 | `e` | export Brewfile to `~/Brewfile` |
 | `?` | help |
