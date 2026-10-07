@@ -217,6 +217,8 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyFlow {
             app.apply_section();
             app.output.push(format!("sort: {}", app.sort.label()));
         }
+        KeyCode::Char('D') => spawn_brew(app, &["doctor".into()]),
+        KeyCode::Char('C') => spawn_brew(app, &["config".into()]),
         KeyCode::Char('t') => {
             app.mode = AppMode::ThemePicker(crate::theme::index_of(&app.theme));
         }
@@ -405,6 +407,8 @@ pub fn help_text() -> String {
             "x",
             "action menu (upgrade/reinstall/remove/info/deps/pin/home)",
         ),
+        ("D", "brew doctor"),
+        ("C", "brew config"),
         ("t", "theme picker"),
         ("S", "sort mode (natural/name/installs)"),
         ("e", "export Brewfile to ~/Brewfile"),
