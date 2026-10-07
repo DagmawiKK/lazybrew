@@ -708,6 +708,7 @@ mod tests {
                 Section::Catalog,
                 Section::Services,
             ],
+            brewfile_path: None,
             brewfile_entries: Vec::new(),
             brewfile: Vec::new(),
             packages: vec![pkg("git", false, false), pkg("firefox", true, true)],
@@ -857,6 +858,7 @@ mod preview {
                 Section::Catalog,
                 Section::Services,
             ],
+            brewfile_path: None,
             brewfile_entries: Vec::new(),
             brewfile: Vec::new(),
             packages: vec![

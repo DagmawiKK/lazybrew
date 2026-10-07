@@ -83,6 +83,7 @@ fn run_app(
 
     let mut app = App {
         sections,
+        brewfile_path: brewfile_path.clone(),
         brewfile_entries: Vec::new(),
         brewfile: Vec::new(),
         packages: Vec::new(),

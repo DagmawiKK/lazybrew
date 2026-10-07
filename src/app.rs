@@ -131,6 +131,8 @@ pub struct App {
     pub theme: Theme,
     /// Sections actually shown in the sidebar (Brewfile only in -f mode).
     pub sections: Vec<Section>,
+    /// The `-f` Brewfile path/URL, when given.
+    pub brewfile_path: Option<String>,
     /// Entries parsed from the -f Brewfile.
     pub brewfile_entries: Vec<crate::brewfile::Entry>,
     /// Brewfile entries resolved against installed + catalog data.
@@ -617,6 +619,7 @@ mod tests {
                 Section::Catalog,
                 Section::Services,
             ],
+            brewfile_path: None,
             brewfile_entries: Vec::new(),
             brewfile: Vec::new(),
             packages: vec![
@@ -663,6 +666,7 @@ mod tests {
                 Section::Catalog,
                 Section::Services,
             ],
+            brewfile_path: None,
             brewfile_entries: Vec::new(),
             brewfile: Vec::new(),
             packages,

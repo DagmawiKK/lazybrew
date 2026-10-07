@@ -219,6 +219,17 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyFlow {
         }
         KeyCode::Char('D') => spawn_brew(app, &["doctor".into()]),
         KeyCode::Char('C') => spawn_brew(app, &["config".into()]),
+        KeyCode::Char('B') => {
+            if let Some(path) = app.brewfile_path.clone() {
+                spawn_brew(
+                    app,
+                    &["bundle".into(), "check".into(), format!("--file={path}")],
+                );
+            } else {
+                app.output
+                    .push("no Brewfile loaded — start lazybrew with -f <path-or-url>".into());
+            }
+        }
         KeyCode::Char('t') => {
             app.mode = AppMode::ThemePicker(crate::theme::index_of(&app.theme));
         }
@@ -409,6 +420,7 @@ pub fn help_text() -> String {
         ),
         ("D", "brew doctor"),
         ("C", "brew config"),
+        ("B", "brew bundle check (-f file)"),
         ("t", "theme picker"),
         ("S", "sort mode (natural/name/installs)"),
         ("e", "export Brewfile to ~/Brewfile"),
@@ -452,6 +464,7 @@ mod tests {
                 Section::Catalog,
                 Section::Services,
             ],
+            brewfile_path: None,
             brewfile_entries: Vec::new(),
             brewfile: Vec::new(),
             packages: vec![p],
@@ -498,6 +511,17 @@ mod tests {
             ModalAction::Reinstall(name, _) => assert_eq!(name, "git"),
             _ => panic!("expected Reinstall action"),
         }
+    }
+
+    #[test]
+    fn capital_b_without_brewfile_reports_missing_file() {
+        let mut app = app_with(pkg("git", false, false));
+        handle_key(&mut app, key('B'));
+        assert!(
+            app.output.iter().any(|l| l.contains("-f")),
+            "should explain -f usage: {:?}",
+            app.output
+        );
     }
 
     #[test]
