@@ -1,1 +1,4 @@
 /target
+
+# local Serena agent config (never commit)
+.serena/
