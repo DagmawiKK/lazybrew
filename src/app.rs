@@ -149,6 +149,17 @@ pub struct Modal {
     pub confirm: ModalAction,
 }
 
+/// The actions menu items, in index order; the active index is carried by
+/// `AppMode::Menu`. Shortcut letters lead each label.
+pub const MENU_ACTIONS: &[&str] = &[
+    "u  Upgrade",
+    "R  Reinstall",
+    "r  Remove",
+    "i  Info",
+    "d  Deps",
+    "p  Pin/Unpin",
+];
+
 /// Convenience constructor for confirm dialogs.
 pub fn modal(text: impl Into<String>, confirm: ModalAction) -> Modal {
     Modal {
@@ -173,6 +184,7 @@ impl App {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModalAction {
     Upgrade(String, bool), // name, is_cask
+    Reinstall(String, bool),
     Remove(String, bool),
     Install(String, bool),
     Update,
@@ -310,6 +322,7 @@ pub fn run_menu_action(app: &mut App, idx: usize) {
     let Some(p) = app.selected().cloned() else {
         return;
     };
+    // Indices match MENU_ACTIONS.
     match idx {
         0 => {
             app.mode = AppMode::Confirm(modal(
@@ -319,13 +332,19 @@ pub fn run_menu_action(app: &mut App, idx: usize) {
         }
         1 => {
             app.mode = AppMode::Confirm(modal(
+                format!("Reinstall '{}'? (y/n)", p.name),
+                ModalAction::Reinstall(p.name, p.cask),
+            ))
+        }
+        2 => {
+            app.mode = AppMode::Confirm(modal(
                 format!("Remove '{}'? (y/n)", p.name),
                 ModalAction::Remove(p.name, p.cask),
             ))
         }
-        2 => spawn_brew(app, &["info".into(), p.name]),
-        3 => spawn_brew(app, &["deps".into(), p.name]),
-        4 => {
+        3 => spawn_brew(app, &["info".into(), p.name]),
+        4 => spawn_brew(app, &["deps".into(), p.name]),
+        5 => {
             let verb = if p.pinned { "unpin" } else { "pin" };
             spawn_brew(app, &[verb.into(), p.name]);
         }
@@ -345,6 +364,14 @@ pub fn run_modal_action(app: &mut App, modal: &Modal) {
         }
         ModalAction::Remove(name, cask) => {
             let mut a = vec!["uninstall".into()];
+            if *cask {
+                a.push("--cask".into());
+            }
+            a.push(name.clone());
+            vec![a]
+        }
+        ModalAction::Reinstall(name, cask) => {
+            let mut a = vec!["reinstall".into()];
             if *cask {
                 a.push("--cask".into());
             }

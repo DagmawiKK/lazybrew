@@ -548,14 +548,7 @@ fn render_overlays(f: &mut Frame, app: &App) {
             );
         }
         AppMode::Menu(menu_idx) => {
-            let items = [
-                "u  Upgrade",
-                "r  Remove",
-                "i  Info",
-                "d  Deps",
-                "p  Pin/Unpin",
-            ];
-            let lines: Vec<Line> = items
+            let lines: Vec<Line> = crate::app::MENU_ACTIONS
                 .iter()
                 .enumerate()
                 .map(|(i, it)| {

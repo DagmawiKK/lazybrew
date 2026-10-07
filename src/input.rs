@@ -88,15 +88,18 @@ fn handle_confirm(app: &mut App, key: KeyEvent) -> KeyFlow {
 }
 
 fn handle_menu(app: &mut App, key: KeyEvent) -> KeyFlow {
+    let last = crate::app::MENU_ACTIONS.len() - 1;
     let idx = match app.mode {
         AppMode::Menu(i) => i,
         _ => return KeyFlow::Continue,
     };
     match key.code {
         KeyCode::Esc | KeyCode::Char('x') => app.mode = AppMode::Normal,
-        KeyCode::Down | KeyCode::Char('j') => app.mode = AppMode::Menu((idx + 1) % 5),
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.mode = AppMode::Menu((idx + 1) % crate::app::MENU_ACTIONS.len())
+        }
         KeyCode::Up | KeyCode::Char('k') => {
-            app.mode = AppMode::Menu(idx.checked_sub(1).unwrap_or(4))
+            app.mode = AppMode::Menu(idx.checked_sub(1).unwrap_or(last))
         }
         KeyCode::Enter => {
             app.mode = AppMode::Normal;
@@ -107,21 +110,25 @@ fn handle_menu(app: &mut App, key: KeyEvent) -> KeyFlow {
                 app.mode = AppMode::Normal;
                 run_menu_action(app, 0);
             }
-            'r' => {
+            'R' => {
                 app.mode = AppMode::Normal;
                 run_menu_action(app, 1);
             }
-            'i' => {
+            'r' => {
                 app.mode = AppMode::Normal;
                 run_menu_action(app, 2);
             }
-            'd' => {
+            'i' => {
                 app.mode = AppMode::Normal;
                 run_menu_action(app, 3);
             }
-            'p' => {
+            'd' => {
                 app.mode = AppMode::Normal;
                 run_menu_action(app, 4);
+            }
+            'p' => {
+                app.mode = AppMode::Normal;
+                run_menu_action(app, 5);
             }
             _ => {}
         },
@@ -390,7 +397,7 @@ pub fn help_text() -> String {
         ("I", "install by typed name (all in Brewfile)"),
         ("R", "remove all (Brewfile section)"),
         ("i/r", "tap/untap (Taps section)"),
-        ("x", "action menu (info/deps/pin)"),
+        ("x", "action menu (upgrade/reinstall/remove/info/deps/pin)"),
         ("t", "theme picker"),
         ("S", "sort mode (natural/name/installs)"),
         ("e", "export Brewfile to ~/Brewfile"),
@@ -464,6 +471,22 @@ mod tests {
 
     fn key(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::empty())
+    }
+
+    #[test]
+    fn menu_reinstall_shortcut_confirms() {
+        let mut app = app_with(pkg("git", false, false));
+        handle_key(&mut app, key('x'));
+        assert!(matches!(app.mode, AppMode::Menu(0)));
+        handle_key(&mut app, key('R'));
+        let AppMode::Confirm(modal) = app.mode else {
+            panic!("expected confirm modal, got {:?}", app.mode);
+        };
+        assert!(modal.text.contains("Reinstall 'git'"));
+        match modal.confirm {
+            ModalAction::Reinstall(name, _) => assert_eq!(name, "git"),
+            _ => panic!("expected Reinstall action"),
+        }
     }
 
     #[test]
