@@ -45,6 +45,7 @@ services, taps, and Brewfiles — all without leaving the terminal.
 | `h`/`l`, tab | switch panel |
 | `/` | search |
 | `esc` | clear search / close |
+| `pgup`/`pgdn` | scroll the output history |
 | `g`/`G` | top / bottom |
 | `i` | install the **selected** package (prompt in Taps section; reports if already installed) |
 | `u` / `r` | upgrade / remove selected (untap in Taps section) |

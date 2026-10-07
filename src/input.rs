@@ -428,6 +428,14 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyFlow {
                 app.apply_section();
             }
         }
+        KeyCode::PageUp => {
+            if !app.output.is_empty() {
+                app.output_offset += 1;
+            }
+        }
+        KeyCode::PageDown => {
+            app.output_offset = app.output_offset.saturating_sub(1);
+        }
         KeyCode::Char('g') => {
             if app.panel == Panel::List {
                 app.list_idx = 0;
@@ -459,6 +467,7 @@ pub fn help_text() -> String {
         ("h/l, tab", "switch panel"),
         ("/", "search"),
         ("esc", "clear search / close"),
+        ("pgup/pgdn", "scroll output history"),
         ("g/G", "top / bottom"),
         ("i", "install selected package (tap prompt in Taps)"),
         ("u", "upgrade selected"),
@@ -543,6 +552,7 @@ mod tests {
             prompt_buffer: String::new(),
             mode: AppMode::Normal,
             output: Vec::new(),
+            output_offset: 0,
             cmd_rx: None,
             frame: 0,
             load_rx: None,
@@ -709,6 +719,43 @@ mod tests {
             modal.text
         );
         assert!(matches!(modal.confirm, ModalAction::SelfUpdate));
+    }
+
+    #[test]
+    fn page_keys_scrub_the_output_history() {
+        let mut app = app_with(pkg("git", false, false));
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::PageUp, KeyModifiers::empty()),
+        ); // no-op on empty output
+        assert_eq!(app.output_offset, 0);
+        app.output = vec!["a".into(), "b".into(), "c".into()];
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::PageUp, KeyModifiers::empty()),
+        );
+        assert_eq!(app.output_offset, 1);
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::PageUp, KeyModifiers::empty()),
+        );
+        assert_eq!(app.output_offset, 2);
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::PageDown, KeyModifiers::empty()),
+        );
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::PageDown, KeyModifiers::empty()),
+        );
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::PageDown, KeyModifiers::empty()),
+        );
+        assert_eq!(
+            app.output_offset, 0,
+            "PageDown clamps at the tail (offset 0)"
+        );
     }
 
     #[test]

@@ -109,6 +109,7 @@ fn run_app(
         prompt_buffer: String::new(),
         mode: AppMode::Normal,
         output: Vec::new(),
+        output_offset: 0,
         cmd_rx: None,
         frame: 0,
         load_rx: Some(load_rx),
@@ -185,6 +186,8 @@ fn run_app(
                         } else {
                             "== FAILED ==".into()
                         });
+                        // Snap back to the tail so the result is always visible.
+                        app.output_offset = 0;
                         finished = true;
                     }
                 }

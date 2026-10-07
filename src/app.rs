@@ -117,6 +117,8 @@ pub struct App {
     /// The active UI state (exactly one mode).
     pub mode: AppMode,
     pub output: Vec<String>,
+    /// Lines scrolled back from the output tail (PageUp/PageDown).
+    pub output_offset: usize,
     pub cmd_rx: Option<mpsc::Receiver<CmdEvent>>,
     pub frame: usize,
     pub load_rx: Option<mpsc::Receiver<LoadResult>>,
@@ -492,6 +494,7 @@ pub fn spawn_brew(app: &mut App, args: &[String]) {
 /// Run a sequence of brew commands sequentially, streaming output for each.
 pub fn spawn_brew_multi(app: &mut App, commands: Vec<Vec<String>>) {
     app.output.clear();
+    app.output_offset = 0;
     for c in &commands {
         app.output.push(format!("$ brew {}", c.join(" ")));
     }
@@ -564,6 +567,7 @@ fn stream_cmd(tx: &mpsc::Sender<CmdEvent>, cmd: &mut std::process::Command) -> b
 /// streaming output to the same channel as brew commands.
 pub fn spawn_shell_multi(app: &mut App, commands: Vec<String>) {
     app.output.clear();
+    app.output_offset = 0;
     for c in &commands {
         app.output.push(format!("$ {c}"));
     }
@@ -698,6 +702,7 @@ mod tests {
             prompt_buffer: String::new(),
             mode: AppMode::Normal,
             output: Vec::new(),
+            output_offset: 0,
             cmd_rx: None,
             frame: 0,
             load_rx: None,
@@ -741,6 +746,7 @@ mod tests {
             prompt_buffer: String::new(),
             mode: AppMode::Normal,
             output: Vec::new(),
+            output_offset: 0,
             cmd_rx: None,
             frame: 0,
             load_rx: None,

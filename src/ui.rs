@@ -437,28 +437,35 @@ fn render_details(f: &mut Frame, app: &App, area: Rect) {
 fn render_output(f: &mut Frame, app: &App, area: Rect) {
     let th = app.theme;
     let inner_height = area.height.saturating_sub(2) as usize;
-    let shown: Vec<Line> = app
-        .output
+    let total = app.output.len();
+    let offset = app.output_offset.min(total.saturating_sub(inner_height));
+    let end = total.saturating_sub(offset);
+    let start = end.saturating_sub(inner_height);
+    let shown: Vec<Line> = app.output[start..end]
         .iter()
-        .skip(app.output.len().saturating_sub(inner_height))
         .map(|l| Line::from(Span::styled(l.clone(), th.output_line(l))))
         .collect();
 
-    let title = if app.cmd_rx.is_some() {
-        Line::from(vec![
-            Span::raw(" Output "),
-            Span::styled(
-                spinner(app).to_string(),
-                Style::default().fg(th.pulse(app.frame)).bold(),
-            ),
-            Span::raw(" "),
-        ])
+    let mut title: Vec<Span> = Vec::new();
+    if app.cmd_rx.is_some() {
+        title.push(Span::raw(" Output "));
+        title.push(Span::styled(
+            spinner(app).to_string(),
+            Style::default().fg(th.pulse(app.frame)).bold(),
+        ));
+        title.push(Span::raw(" "));
+    } else if offset > 0 {
+        title.push(Span::raw(" Output "));
+        title.push(Span::styled(
+            format!("⇡ {offset} "),
+            Style::default().fg(th.warn).bold(),
+        ));
     } else {
-        Line::from(" Output ")
-    };
+        title.push(Span::raw(" Output "));
+    }
     let output = Paragraph::new(shown).block(
         Block::default()
-            .title(title)
+            .title(Line::from(title))
             .title_style(th.title())
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
@@ -728,6 +735,7 @@ mod tests {
             prompt_buffer: String::new(),
             mode: AppMode::Normal,
             output: Vec::new(),
+            output_offset: 0,
             cmd_rx: None,
             frame: 0,
             load_rx: None,
@@ -884,6 +892,7 @@ mod preview {
             prompt_buffer: String::new(),
             mode: AppMode::Normal,
             output: vec!["$ brew install git".into(), "== done ==".into()],
+            output_offset: 2,
             cmd_rx: None,
             frame: 3,
             load_rx: None,
