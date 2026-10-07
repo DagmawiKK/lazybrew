@@ -32,9 +32,13 @@ fn main() -> Result<()> {
                 brewfile_path = args.get(i + 1).cloned();
                 i += 1;
             }
+            "-v" | "--version" => {
+                println!("lazybrew {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
             "-h" | "--help" => {
                 println!("lazybrew - a lazygit-style TUI for Homebrew");
-                println!("Usage: lazybrew [-f <brewfile-path-or-url>]");
+                println!("Usage: lazybrew [-v] [-f <brewfile-path-or-url>]");
                 return Ok(());
             }
             other => {
