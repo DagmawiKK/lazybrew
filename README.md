@@ -5,6 +5,18 @@ A [lazygit]-inspired terminal UI for Homebrew, written in Rust with [ratatui].
 Browse the full Homebrew catalog, manage installed formulae and casks,
 services, taps, and Brewfiles — all without leaving the terminal.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/lazybrew-main.png" alt="lazybrew main interface" width="720">
+</p>
+<p align="center"><em>The main interface: sections sidebar, package table, details and output panes.</em></p>
+
+<p align="center">
+  <img src="docs/lazybrew-install-success.png" alt="lazybrew install success" width="720">
+</p>
+<p align="center"><em>A successful install: confirmation dialog, streamed output, done marker.</em></p>
+
 ## Features
 
 - Lazygit-style layout: sidebar sections, package table, details pane, output pane
