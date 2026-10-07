@@ -17,6 +17,10 @@ services, taps, and Brewfiles — all without leaving the terminal.
   strikethrough) packages with reason + replacement suggestion in details
 - **Popularity**: 90-day install analytics (cached daily) shown as a `90d`
   column in Catalog and in details; sort any list by installs with `S`
+- **Maintenance**: reinstall and open-homepage from the action menu (`x`),
+  `brew doctor`/`config`, `brew bundle check` for the `-f` file, and a
+  warning before installing third-party taps showing where the package
+  actually comes from
 - Upgrade / remove / upgrade-all / cleanup / autoremove with confirmation
   dialogs and streamed command output
 - **Services**: list and start/stop `brew services`
@@ -50,7 +54,10 @@ services, taps, and Brewfiles — all without leaving the terminal.
 | `s` | start/stop service (Services section) |
 | `S` | cycle sort mode — natural / name / installs (90-day) |
 | `v` | vulnerability scan (formulae) |
-| `x` | action menu (info/deps/pin) |
+| `x` | action menu (upgrade / reinstall / remove / info / deps / pin / home) |
+| `D` | `brew doctor` |
+| `C` | `brew config` |
+| `B` | `brew bundle check` (needs `-f`) |
 | `t` | theme picker (6 built-in themes, persisted) |
 | `I` | install by typed name (install-all in Brewfile section) |
 | `R` | remove all (Brewfile section) |
