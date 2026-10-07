@@ -1,7 +1,7 @@
 //! Keyboard handling.
 
 use crate::app::{
-    App, Modal, ModalAction, Panel, Section, run_menu_action, run_modal_action, spawn_brew,
+    App, AppMode, ModalAction, Panel, Section, modal, run_menu_action, run_modal_action, spawn_brew,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -11,160 +11,174 @@ pub enum KeyFlow {
 }
 
 pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
-    if app.help {
-        app.help = false;
-        return KeyFlow::Continue;
-    }
-
-    if let Some(pick) = app.theme_picker {
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('t') => app.theme_picker = None,
-            KeyCode::Down | KeyCode::Char('j') => {
-                app.theme_picker = Some((pick + 1) % crate::theme::THEMES.len())
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                app.theme_picker = Some(
-                    pick.checked_sub(1)
-                        .unwrap_or(crate::theme::THEMES.len() - 1),
-                )
-            }
-            KeyCode::Enter => {
-                let chosen = crate::theme::THEMES[pick];
-                app.theme = chosen;
-                app.theme_picker = None;
-                crate::theme::save(&chosen);
-            }
-            _ => {}
+    // Exactly one mode is active; dispatch by it. Overlays handle their own
+    // keys and never leak into list navigation (or vice versa).
+    match app.mode {
+        AppMode::Normal => handle_normal(app, key),
+        AppMode::Search => handle_search(app, key),
+        AppMode::Prompt => handle_prompt(app, key),
+        AppMode::Confirm(_) => handle_confirm(app, key),
+        AppMode::Menu(_) => handle_menu(app, key),
+        AppMode::ThemePicker(_) => handle_theme_picker(app, key),
+        AppMode::Help => {
+            app.mode = AppMode::Normal;
+            KeyFlow::Continue
         }
-        return KeyFlow::Continue;
     }
+}
 
-    if let Some(menu_idx) = app.menu {
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('x') => app.menu = None,
-            KeyCode::Down | KeyCode::Char('j') => app.menu = Some((menu_idx + 1) % 5),
-            KeyCode::Up | KeyCode::Char('k') => {
-                app.menu = Some(menu_idx.checked_sub(1).unwrap_or(4))
-            }
-            KeyCode::Enter => {
-                app.menu = None;
-                run_menu_action(app, menu_idx);
-            }
-            KeyCode::Char(c) => match c {
-                'u' => {
-                    app.menu = None;
-                    run_menu_action(app, 0);
-                }
-                'r' => {
-                    app.menu = None;
-                    run_menu_action(app, 1);
-                }
-                'i' => {
-                    app.menu = None;
-                    run_menu_action(app, 2);
-                }
-                'd' => {
-                    app.menu = None;
-                    run_menu_action(app, 3);
-                }
-                'p' => {
-                    app.menu = None;
-                    run_menu_action(app, 4);
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-        return KeyFlow::Continue;
-    }
-
-    if let Some(modal) = app.modal.take() {
-        match key.code {
-            KeyCode::Char('y') | KeyCode::Enter => {
-                run_modal_action(app, &modal);
-                return KeyFlow::Continue;
-            }
-            _ => {}
-        }
-        return KeyFlow::Continue;
-    }
-
-    if app.installing {
-        match key.code {
-            KeyCode::Enter => {
-                let name = app.install_input.trim().to_string();
-                app.installing = false;
-                app.install_input.clear();
-                if !name.is_empty() {
-                    let action = if app.sections[app.section_idx] == Section::Taps {
-                        ModalAction::Tap(name.clone())
-                    } else {
-                        ModalAction::Install(name.clone(), false)
-                    };
-                    app.modal = Some(Modal {
-                        text: format!("Install '{}'? (y/n)", name),
-                        confirm: action,
-                    });
-                }
-            }
-            KeyCode::Esc => {
-                app.installing = false;
-                app.install_input.clear();
-            }
-            KeyCode::Backspace => {
-                app.install_input.pop();
-            }
-            KeyCode::Char(c) => app.install_input.push(c),
-            _ => {}
-        }
-        return KeyFlow::Continue;
-    }
-
-    if app.searching {
-        match key.code {
-            KeyCode::Enter => app.searching = false,
-            KeyCode::Esc => {
-                app.search.clear();
-                app.apply_section();
-                app.searching = false;
-            }
-            KeyCode::Backspace => {
-                app.search.pop();
-                app.apply_section();
-            }
-            KeyCode::Char(c) => {
-                app.search.push(c);
-                app.apply_section();
-            }
-            _ => {}
-        }
-        return KeyFlow::Continue;
-    }
-
+fn handle_search(app: &mut App, key: KeyEvent) -> KeyFlow {
     match key.code {
-        KeyCode::Char('/') => {
-            app.searching = true;
+        KeyCode::Enter => app.mode = AppMode::Normal,
+        KeyCode::Esc => {
+            app.search.clear();
+            app.apply_section();
+            app.mode = AppMode::Normal;
         }
+        KeyCode::Backspace => {
+            app.search.pop();
+            app.apply_section();
+        }
+        KeyCode::Char(c) => {
+            app.search.push(c);
+            app.apply_section();
+        }
+        _ => {}
+    }
+    KeyFlow::Continue
+}
+
+fn handle_prompt(app: &mut App, key: KeyEvent) -> KeyFlow {
+    match key.code {
+        KeyCode::Enter => {
+            let name = app.prompt_buffer.trim().to_string();
+            app.prompt_buffer.clear();
+            app.mode = AppMode::Normal;
+            if !name.is_empty() {
+                let action = if app.sections[app.section_idx] == Section::Taps {
+                    ModalAction::Tap(name.clone())
+                } else {
+                    ModalAction::Install(name.clone(), false)
+                };
+                app.mode = AppMode::Confirm(modal(format!("Install '{}'? (y/n)", name), action));
+            }
+        }
+        KeyCode::Esc => {
+            app.prompt_buffer.clear();
+            app.mode = AppMode::Normal;
+        }
+        KeyCode::Backspace => {
+            app.prompt_buffer.pop();
+        }
+        KeyCode::Char(c) => app.prompt_buffer.push(c),
+        _ => {}
+    }
+    KeyFlow::Continue
+}
+
+fn handle_confirm(app: &mut App, key: KeyEvent) -> KeyFlow {
+    let Some(modal) = app.take_modal() else {
+        return KeyFlow::Continue;
+    };
+    match key.code {
+        KeyCode::Char('y') | KeyCode::Enter => run_modal_action(app, &modal),
+        _ => {}
+    }
+    KeyFlow::Continue
+}
+
+fn handle_menu(app: &mut App, key: KeyEvent) -> KeyFlow {
+    let idx = match app.mode {
+        AppMode::Menu(i) => i,
+        _ => return KeyFlow::Continue,
+    };
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('x') => app.mode = AppMode::Normal,
+        KeyCode::Down | KeyCode::Char('j') => app.mode = AppMode::Menu((idx + 1) % 5),
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.mode = AppMode::Menu(idx.checked_sub(1).unwrap_or(4))
+        }
+        KeyCode::Enter => {
+            app.mode = AppMode::Normal;
+            run_menu_action(app, idx);
+        }
+        KeyCode::Char(c) => match c {
+            'u' => {
+                app.mode = AppMode::Normal;
+                run_menu_action(app, 0);
+            }
+            'r' => {
+                app.mode = AppMode::Normal;
+                run_menu_action(app, 1);
+            }
+            'i' => {
+                app.mode = AppMode::Normal;
+                run_menu_action(app, 2);
+            }
+            'd' => {
+                app.mode = AppMode::Normal;
+                run_menu_action(app, 3);
+            }
+            'p' => {
+                app.mode = AppMode::Normal;
+                run_menu_action(app, 4);
+            }
+            _ => {}
+        },
+        _ => {}
+    }
+    KeyFlow::Continue
+}
+
+fn handle_theme_picker(app: &mut App, key: KeyEvent) -> KeyFlow {
+    let pick = match app.mode {
+        AppMode::ThemePicker(i) => i,
+        _ => return KeyFlow::Continue,
+    };
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('t') => app.mode = AppMode::Normal,
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.mode = AppMode::ThemePicker((pick + 1) % crate::theme::THEMES.len())
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.mode = AppMode::ThemePicker(
+                pick.checked_sub(1)
+                    .unwrap_or(crate::theme::THEMES.len() - 1),
+            )
+        }
+        KeyCode::Enter => {
+            let chosen = crate::theme::THEMES[pick];
+            app.theme = chosen;
+            app.mode = AppMode::Normal;
+            crate::theme::save(&chosen);
+        }
+        _ => {}
+    }
+    KeyFlow::Continue
+}
+
+fn handle_normal(app: &mut App, key: KeyEvent) -> KeyFlow {
+    match key.code {
+        KeyCode::Char('/') => app.mode = AppMode::Search,
         KeyCode::Char('I') => {
             if app.sections[app.section_idx] == Section::Brewfile {
                 let missing = app.brewfile_missing();
-                app.modal = Some(Modal {
-                    text: format!("Install {missing} missing Brewfile packages? (y/n)"),
-                    confirm: ModalAction::BrewfileInstall,
-                });
+                app.mode = AppMode::Confirm(modal(
+                    format!("Install {missing} missing Brewfile packages? (y/n)"),
+                    ModalAction::BrewfileInstall,
+                ));
             } else {
                 // Explicit "type the name" install.
-                app.searching = false;
-                app.installing = true;
-                app.install_input.clear();
+                app.prompt_buffer.clear();
+                app.mode = AppMode::Prompt;
             }
         }
         KeyCode::Char('R') => {
             if app.sections[app.section_idx] == Section::Brewfile {
-                app.modal = Some(Modal {
-                    text: format!("Remove all {} Brewfile packages? (y/n)", app.brewfile.len()),
-                    confirm: ModalAction::BrewfileRemove,
-                });
+                app.mode = AppMode::Confirm(modal(
+                    format!("Remove all {} Brewfile packages? (y/n)", app.brewfile.len()),
+                    ModalAction::BrewfileRemove,
+                ));
             }
         }
         KeyCode::Char('v') => {
@@ -193,14 +207,14 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
             app.output.push(format!("sort: {}", app.sort.label()));
         }
         KeyCode::Char('t') => {
-            app.theme_picker = Some(crate::theme::index_of(&app.theme));
+            app.mode = AppMode::ThemePicker(crate::theme::index_of(&app.theme));
         }
         KeyCode::Char('x') => {
             if app.selected().is_some() {
-                app.menu = Some(0);
+                app.mode = AppMode::Menu(0);
             }
         }
-        KeyCode::Char('?') => app.help = true,
+        KeyCode::Char('?') => app.mode = AppMode::Help,
         KeyCode::Char('e') => {
             let home = dirs::home_dir().unwrap_or_else(|| ".".into());
             let path = home.join("Brewfile");
@@ -219,60 +233,53 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
         KeyCode::Char('u') => {
             if let Some(p) = app.selected() {
                 let p = p.clone();
-                app.modal = Some(Modal {
-                    text: format!("Upgrade '{}'? (y/n)", p.name),
-                    confirm: ModalAction::Upgrade(p.name, p.cask),
-                });
+                app.mode = AppMode::Confirm(modal(
+                    format!("Upgrade '{}'? (y/n)", p.name),
+                    ModalAction::Upgrade(p.name, p.cask),
+                ));
             }
         }
         KeyCode::Char('r') => {
             if app.sections[app.section_idx] == Section::Taps {
                 if let Some(p) = app.selected().cloned() {
-                    app.modal = Some(Modal {
-                        text: format!("Untap '{}'? (y/n)", p.name),
-                        confirm: ModalAction::Untap(p.name),
-                    });
+                    app.mode = AppMode::Confirm(modal(
+                        format!("Untap '{}'? (y/n)", p.name),
+                        ModalAction::Untap(p.name),
+                    ));
                 }
             } else if let Some(p) = app.selected().cloned() {
-                app.modal = Some(Modal {
-                    text: format!("Remove '{}'? (y/n)", p.name),
-                    confirm: ModalAction::Remove(p.name, p.cask),
-                });
+                app.mode = AppMode::Confirm(modal(
+                    format!("Remove '{}'? (y/n)", p.name),
+                    ModalAction::Remove(p.name, p.cask),
+                ));
             }
         }
         KeyCode::Char('A') => {
-            app.modal = Some(Modal {
-                text: format!(
+            app.mode = AppMode::Confirm(modal(
+                format!(
                     "Upgrade all {} outdated packages? (y/n)",
                     app.count_for(Section::Outdated)
                 ),
-                confirm: ModalAction::UpgradeAll,
-            });
+                ModalAction::UpgradeAll,
+            ));
         }
         KeyCode::Char('K') => {
-            app.modal = Some(Modal {
-                text: "Run 'brew cleanup'? (y/n)".into(),
-                confirm: ModalAction::Cleanup,
-            });
+            app.mode = AppMode::Confirm(modal("Run 'brew cleanup'? (y/n)", ModalAction::Cleanup));
         }
         KeyCode::Char('n') => {
-            app.modal = Some(Modal {
-                text: "Run 'brew autoremove'? (y/n)".into(),
-                confirm: ModalAction::Autoremove,
-            });
+            app.mode = AppMode::Confirm(modal(
+                "Run 'brew autoremove'? (y/n)",
+                ModalAction::Autoremove,
+            ));
         }
         KeyCode::Char('U') => {
-            app.modal = Some(Modal {
-                text: "Run 'brew update'? (y/n)".into(),
-                confirm: ModalAction::Update,
-            });
+            app.mode = AppMode::Confirm(modal("Run 'brew update'? (y/n)", ModalAction::Update));
         }
         KeyCode::Char('i') => {
-            app.searching = false;
             if app.sections[app.section_idx] == Section::Taps {
                 // Adding a NEW tap still needs a typed name.
-                app.installing = true;
-                app.install_input.clear();
+                app.prompt_buffer.clear();
+                app.mode = AppMode::Prompt;
             } else if let Some(p) = app.selected().cloned() {
                 if p.installed_version.is_some() || p.service_status.is_some() {
                     let detail = p.installed_version.unwrap_or_else(|| "installed".into());
@@ -281,15 +288,15 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
                         p.name, detail
                     ));
                 } else {
-                    app.modal = Some(Modal {
-                        text: format!("Install '{}'? (y/n)", p.name),
-                        confirm: ModalAction::Install(p.name, p.cask),
-                    });
+                    app.mode = AppMode::Confirm(modal(
+                        format!("Install '{}'? (y/n)", p.name),
+                        ModalAction::Install(p.name, p.cask),
+                    ));
                 }
             } else {
                 // Nothing selected: fall back to typing a name.
-                app.installing = true;
-                app.install_input.clear();
+                app.prompt_buffer.clear();
+                app.mode = AppMode::Prompt;
             }
         }
         KeyCode::Char('q') => return KeyFlow::Quit,
@@ -442,19 +449,14 @@ mod tests {
             services: Vec::new(),
             vulns: Default::default(),
             search: String::new(),
-            searching: false,
-            installing: false,
-            install_input: String::new(),
+            prompt_buffer: String::new(),
+            mode: AppMode::Normal,
             output: Vec::new(),
             cmd_rx: None,
-            modal: None,
-            menu: None,
             frame: 0,
             load_rx: None,
             catalog_rx: None,
-            help: false,
             theme: crate::theme::DEFAULT,
-            theme_picker: None,
         };
         app.apply_section();
         app
@@ -480,8 +482,9 @@ mod tests {
     fn i_installs_the_selected_package_without_typing() {
         let mut app = app_with(pkg("wget", false, false));
         handle_key(&mut app, key('i'));
-        assert!(!app.installing, "should not ask for the name");
-        let modal = app.modal.expect("confirm modal");
+        let AppMode::Confirm(modal) = app.mode else {
+            panic!("expected confirm modal, got {:?}", app.mode);
+        };
         assert!(modal.text.contains("wget"));
         match modal.confirm {
             ModalAction::Install(name, cask) => {
@@ -496,7 +499,9 @@ mod tests {
     fn i_passes_cask_flag_through() {
         let mut app = app_with(pkg("firefox", false, true));
         handle_key(&mut app, key('i'));
-        let modal = app.modal.expect("confirm modal");
+        let AppMode::Confirm(modal) = app.mode else {
+            panic!("expected confirm modal, got {:?}", app.mode);
+        };
         match modal.confirm {
             ModalAction::Install(_, cask) => assert!(cask),
             _ => panic!("expected Install action"),
@@ -507,8 +512,7 @@ mod tests {
     fn i_on_installed_package_reports_and_skips_prompt() {
         let mut app = app_with(pkg("git", true, false));
         handle_key(&mut app, key('i'));
-        assert!(app.modal.is_none());
-        assert!(!app.installing);
+        assert_eq!(app.mode, AppMode::Normal);
         assert!(
             app.output.iter().any(|l| l.contains("already installed")),
             "output should explain it is already installed: {:?}",
@@ -520,6 +524,85 @@ mod tests {
     fn capital_i_falls_back_to_typed_name() {
         let mut app = app_with(pkg("git", true, false));
         handle_key(&mut app, key('I'));
-        assert!(app.installing, "I should open the type-a-name prompt");
+        assert!(
+            matches!(app.mode, AppMode::Prompt),
+            "I should open the type-a-name prompt"
+        );
+    }
+
+    #[test]
+    fn prompt_typing_ends_in_confirm_with_typed_name() {
+        let mut app = app_with(pkg("git", true, false));
+        handle_key(&mut app, key('I'));
+        for c in "wget".chars() {
+            handle_key(&mut app, key(c));
+        }
+        assert_eq!(app.prompt_buffer, "wget");
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+        let AppMode::Confirm(modal) = app.mode else {
+            panic!("expected confirm modal, got {:?}", app.mode);
+        };
+        assert!(modal.text.contains("wget"));
+        match modal.confirm {
+            ModalAction::Install(name, _) => assert_eq!(name, "wget"),
+            _ => panic!("expected Install action"),
+        }
+    }
+
+    #[test]
+    fn esc_cancels_the_prompt() {
+        let mut app = app_with(pkg("git", true, false));
+        handle_key(&mut app, key('I'));
+        handle_key(&mut app, key('w'));
+        handle_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()));
+        assert_eq!(app.mode, AppMode::Normal);
+        assert!(app.prompt_buffer.is_empty());
+    }
+
+    #[test]
+    fn search_typing_filters_and_esc_clears() {
+        let mut app = app_with(pkg("git", false, false));
+        handle_key(&mut app, key('/'));
+        handle_key(&mut app, key('g'));
+        assert_eq!(app.search, "g");
+        assert_eq!(app.filtered.len(), 1);
+        handle_key(&mut app, key('z'));
+        assert!(app.filtered.is_empty(), "no package matches 'gz'");
+        handle_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()));
+        assert_eq!(app.mode, AppMode::Normal);
+        assert!(app.search.is_empty());
+    }
+
+    #[test]
+    fn help_closes_on_any_key() {
+        let mut app = app_with(pkg("git", false, false));
+        handle_key(&mut app, key('?'));
+        assert_eq!(app.mode, AppMode::Help);
+        handle_key(&mut app, key('j'));
+        assert_eq!(app.mode, AppMode::Normal);
+    }
+
+    #[test]
+    fn theme_picker_navigates_with_jk_and_closes() {
+        let mut app = app_with(pkg("git", false, false));
+        handle_key(&mut app, key('t'));
+        let AppMode::ThemePicker(initial) = app.mode else {
+            panic!("expected theme picker, got {:?}", app.mode);
+        };
+        handle_key(&mut app, key('j'));
+        let AppMode::ThemePicker(next) = app.mode else {
+            panic!("expected theme picker after j");
+        };
+        assert_eq!(next, (initial + 1) % crate::theme::THEMES.len());
+        handle_key(&mut app, key('k'));
+        let AppMode::ThemePicker(prev) = app.mode else {
+            panic!("expected theme picker after k");
+        };
+        assert_eq!(prev, initial);
+        handle_key(&mut app, key('t'));
+        assert_eq!(app.mode, AppMode::Normal);
     }
 }

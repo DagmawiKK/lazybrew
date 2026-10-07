@@ -8,7 +8,7 @@ mod ui;
 
 use anyhow::Result;
 use app::{
-    App, CmdEvent, Modal, ModalAction, Panel, Section, SortMode, spawn_catalog_thread,
+    App, AppMode, CmdEvent, ModalAction, Panel, Section, SortMode, modal, spawn_catalog_thread,
     spawn_load_thread,
 };
 use crossterm::{
@@ -99,18 +99,13 @@ fn run_app(
         vulns: Default::default(),
         catalog: Vec::new(),
         search: String::new(),
-        searching: false,
-        installing: false,
-        install_input: String::new(),
+        prompt_buffer: String::new(),
+        mode: AppMode::Normal,
         output: Vec::new(),
         cmd_rx: None,
-        modal: None,
-        menu: None,
         frame: 0,
         load_rx: Some(load_rx),
-        help: false,
         theme: theme::load(),
-        theme_picker: None,
     };
     if let Some(path) = &brewfile_path
         && let Ok(entries) = brewfile::load(path)
@@ -172,10 +167,10 @@ fn run_app(
                         app.vulns.insert(name, list);
                     }
                     CmdEvent::VulnsMissing => {
-                        app.modal = Some(Modal {
-                            text: "brew vulns is not installed.\n\nInstall it now? (y/n)".into(),
-                            confirm: ModalAction::InstallVulns,
-                        });
+                        app.mode = AppMode::Confirm(modal(
+                            "brew vulns is not installed.\n\nInstall it now? (y/n)",
+                            ModalAction::InstallVulns,
+                        ));
                     }
                     CmdEvent::Done(ok) => {
                         app.output.push(if ok {

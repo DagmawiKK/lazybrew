@@ -1,6 +1,6 @@
 //! Rendering.
 
-use crate::app::{App, Panel, Section, SortMode, spinner};
+use crate::app::{App, AppMode, Panel, Section, SortMode, spinner};
 use crate::brew::DeprecationKind;
 use crate::catalog;
 use crate::theme::{THEMES, Theme};
@@ -103,28 +103,28 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_search_row(f: &mut Frame, app: &App, area: Rect) {
     let th = app.theme;
-    if app.installing {
-        f.render_widget(
-            Paragraph::new(format!(" install ▸ {}_ ", app.install_input))
+    match app.mode {
+        AppMode::Prompt => f.render_widget(
+            Paragraph::new(format!(" install ▸ {}_ ", app.prompt_buffer))
                 .style(Style::default().fg(th.good).bg(th.bar_bg).bold()),
             area,
-        );
-    } else if app.searching {
-        f.render_widget(
+        ),
+        AppMode::Search => f.render_widget(
             Paragraph::new(format!(" search ▸ /{}_ ", app.search))
                 .style(Style::default().fg(th.warn).bg(th.bar_bg).bold()),
             area,
-        );
-    } else {
-        let text = if app.search.is_empty() {
-            " press / to search ".to_string()
-        } else {
-            format!(" search ▸ /{} ", app.search)
-        };
-        f.render_widget(
-            Paragraph::new(text).style(Style::default().fg(th.dim).bg(th.bar_bg)),
-            area,
-        );
+        ),
+        _ => {
+            let text = if app.search.is_empty() {
+                " press / to search ".to_string()
+            } else {
+                format!(" search ▸ /{} ", app.search)
+            };
+            f.render_widget(
+                Paragraph::new(text).style(Style::default().fg(th.dim).bg(th.bar_bg)),
+                area,
+            );
+        }
     }
 }
 
@@ -535,92 +535,89 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_overlays(f: &mut Frame, app: &App) {
     let th = app.theme;
-    if let Some(modal) = &app.modal {
-        let area = centered_rect(52, 18, f.area());
-        f.render_widget(Clear, area);
-        f.render_widget(
-            Paragraph::new(modal.text.clone())
-                .style(Style::default().fg(th.fg).bg(th.bar_bg))
-                .wrap(Wrap { trim: false })
-                .block(th.panel_block(" Confirm ", true)),
-            area,
-        );
-    }
-
-    if let Some(menu_idx) = app.menu {
-        let items = [
-            "u  Upgrade",
-            "r  Remove",
-            "i  Info",
-            "d  Deps",
-            "p  Pin/Unpin",
-        ];
-        let lines: Vec<Line> = items
-            .iter()
-            .enumerate()
-            .map(|(i, it)| {
-                if i == menu_idx {
-                    Line::from(Span::styled(
-                        format!(" ▸ {it} "),
-                        Style::default().fg(th.bg).bg(th.accent).bold(),
-                    ))
-                } else {
-                    Line::from(Span::styled(
-                        format!("   {it} "),
-                        Style::default().fg(th.dim),
-                    ))
-                }
-            })
-            .collect();
-        let area = centered_rect(30, 34, f.area());
-        f.render_widget(Clear, area);
-        f.render_widget(
-            Paragraph::new(lines)
-                .style(Style::default().bg(th.bar_bg))
-                .block(th.panel_block(" Actions ", true)),
-            area,
-        );
-    }
-
-    render_theme_picker(f, app);
-
-    if app.help {
-        let help = crate::input::help_text();
-        let lines: Vec<Line> = help
-            .lines()
-            .map(|l| {
-                if l.trim().is_empty() {
-                    Line::from("")
-                } else if l.starts_with("lazybrew") {
-                    Line::from(Span::styled(
-                        l,
-                        Style::default().fg(th.accent).add_modifier(Modifier::BOLD),
-                    ))
-                } else {
-                    let key = l.get(..16).unwrap_or(l);
-                    let rest = l.get(16..).unwrap_or("");
-                    Line::from(vec![
-                        Span::styled(format!(" {key}"), th.key_chip(key.trim())),
-                        Span::styled(rest, Style::default().fg(th.dim)),
-                    ])
-                }
-            })
-            .collect();
-        let area = centered_rect(64, 66, f.area());
-        f.render_widget(Clear, area);
-        f.render_widget(
-            Paragraph::new(lines)
-                .style(Style::default().bg(th.bar_bg))
-                .block(th.panel_block(" Help ", true)),
-            area,
-        );
+    match &app.mode {
+        AppMode::Confirm(modal) => {
+            let area = centered_rect(52, 18, f.area());
+            f.render_widget(Clear, area);
+            f.render_widget(
+                Paragraph::new(modal.text.clone())
+                    .style(Style::default().fg(th.fg).bg(th.bar_bg))
+                    .wrap(Wrap { trim: false })
+                    .block(th.panel_block(" Confirm ", true)),
+                area,
+            );
+        }
+        AppMode::Menu(menu_idx) => {
+            let items = [
+                "u  Upgrade",
+                "r  Remove",
+                "i  Info",
+                "d  Deps",
+                "p  Pin/Unpin",
+            ];
+            let lines: Vec<Line> = items
+                .iter()
+                .enumerate()
+                .map(|(i, it)| {
+                    if i == *menu_idx {
+                        Line::from(Span::styled(
+                            format!(" ▸ {it} "),
+                            Style::default().fg(th.bg).bg(th.accent).bold(),
+                        ))
+                    } else {
+                        Line::from(Span::styled(
+                            format!("   {it} "),
+                            Style::default().fg(th.dim),
+                        ))
+                    }
+                })
+                .collect();
+            let area = centered_rect(30, 34, f.area());
+            f.render_widget(Clear, area);
+            f.render_widget(
+                Paragraph::new(lines)
+                    .style(Style::default().bg(th.bar_bg))
+                    .block(th.panel_block(" Actions ", true)),
+                area,
+            );
+        }
+        AppMode::ThemePicker(pick) => render_theme_picker(f, app, *pick),
+        AppMode::Help => {
+            let help = crate::input::help_text();
+            let lines: Vec<Line> = help
+                .lines()
+                .map(|l| {
+                    if l.trim().is_empty() {
+                        Line::from("")
+                    } else if l.starts_with("lazybrew") {
+                        Line::from(Span::styled(
+                            l,
+                            Style::default().fg(th.accent).add_modifier(Modifier::BOLD),
+                        ))
+                    } else {
+                        let key = l.get(..16).unwrap_or(l);
+                        let rest = l.get(16..).unwrap_or("");
+                        Line::from(vec![
+                            Span::styled(format!(" {key}"), th.key_chip(key.trim())),
+                            Span::styled(rest, Style::default().fg(th.dim)),
+                        ])
+                    }
+                })
+                .collect();
+            let area = centered_rect(64, 66, f.area());
+            f.render_widget(Clear, area);
+            f.render_widget(
+                Paragraph::new(lines)
+                    .style(Style::default().bg(th.bar_bg))
+                    .block(th.panel_block(" Help ", true)),
+                area,
+            );
+        }
+        _ => {}
     }
 }
 
-fn render_theme_picker(f: &mut Frame, app: &App) {
-    let Some(pick) = app.theme_picker else {
-        return;
-    };
+fn render_theme_picker(f: &mut Frame, app: &App, pick: usize) {
     let th = app.theme;
     let lines: Vec<Line> = THEMES
         .iter()
@@ -733,19 +730,14 @@ mod tests {
             services: Vec::new(),
             vulns: Default::default(),
             search: String::new(),
-            searching: false,
-            installing: false,
-            install_input: String::new(),
+            prompt_buffer: String::new(),
+            mode: AppMode::Normal,
             output: Vec::new(),
             cmd_rx: None,
-            modal: None,
-            menu: None,
             frame: 0,
             load_rx: None,
             catalog_rx: None,
-            help: false,
             theme: crate::theme::DEFAULT,
-            theme_picker: None,
         };
         app.apply_section();
         app
@@ -807,7 +799,7 @@ mod tests {
     #[test]
     fn theme_picker_lists_all_themes() {
         let mut app = test_app();
-        app.theme_picker = Some(1);
+        app.mode = AppMode::ThemePicker(1);
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| render(f, &app)).unwrap();
@@ -892,19 +884,14 @@ mod preview {
             services: Vec::new(),
             vulns: Default::default(),
             search: String::new(),
-            searching: false,
-            installing: false,
-            install_input: String::new(),
+            prompt_buffer: String::new(),
+            mode: AppMode::Normal,
             output: vec!["$ brew install git".into(), "== done ==".into()],
             cmd_rx: None,
-            modal: None,
-            menu: None,
             frame: 3,
             load_rx: None,
             catalog_rx: None,
-            help: false,
             theme: crate::theme::DEFAULT,
-            theme_picker: None,
         };
         app.apply_section();
         let backend = TestBackend::new(100, 30);

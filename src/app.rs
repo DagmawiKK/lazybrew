@@ -82,6 +82,28 @@ impl SortMode {
     }
 }
 
+/// The single explicit UI state. Exactly one mode is active at a time —
+/// this replaces the earlier set of independent booleans/options (searching,
+/// installing, modal, menu, help, theme_picker) that could silently collide.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AppMode {
+    /// Browsing the sidebar/list; all default keys active.
+    Normal,
+    /// `/` search is being typed; input goes into `App.search`.
+    Search,
+    /// Type-a-name prompt (`I`, or `i` without a valid selection);
+    /// input goes into `App.prompt_buffer`.
+    Prompt,
+    /// Confirmation dialog.
+    Confirm(Modal),
+    /// Action menu for the selected package.
+    Menu(usize),
+    /// Theme picker overlay.
+    ThemePicker(usize),
+    /// Help overlay — any key closes it.
+    Help,
+}
+
 pub struct App {
     pub packages: Vec<Package>,
     pub filtered: Vec<Package>,
@@ -91,13 +113,11 @@ pub struct App {
     pub sort: SortMode,
     pub leaves: Vec<String>,
     pub search: String,
-    pub searching: bool,
-    pub installing: bool,
-    pub install_input: String,
+    pub prompt_buffer: String,
+    /// The active UI state (exactly one mode).
+    pub mode: AppMode,
     pub output: Vec<String>,
     pub cmd_rx: Option<mpsc::Receiver<CmdEvent>>,
-    pub modal: Option<Modal>,
-    pub menu: Option<usize>,
     pub frame: usize,
     pub load_rx: Option<mpsc::Receiver<LoadResult>>,
     pub catalog_rx: Option<mpsc::Receiver<CatalogData>>,
@@ -107,11 +127,8 @@ pub struct App {
     pub taps: Vec<Package>,
     pub services: Vec<Package>,
     pub vulns: std::collections::HashMap<String, Vec<String>>,
-    pub help: bool,
     /// Active color theme.
     pub theme: Theme,
-    /// Open theme-picker selection index (None = closed).
-    pub theme_picker: Option<usize>,
     /// Sections actually shown in the sidebar (Brewfile only in -f mode).
     pub sections: Vec<Section>,
     /// Entries parsed from the -f Brewfile.
@@ -126,11 +143,34 @@ pub fn spinner(app: &App) -> char {
     SPINNER[app.frame % SPINNER.len()]
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Modal {
     pub text: String,
     pub confirm: ModalAction,
 }
 
+/// Convenience constructor for confirm dialogs.
+pub fn modal(text: impl Into<String>, confirm: ModalAction) -> Modal {
+    Modal {
+        text: text.into(),
+        confirm,
+    }
+}
+
+impl App {
+    /// Take and close the confirm dialog, if one is open.
+    pub fn take_modal(&mut self) -> Option<Modal> {
+        match std::mem::replace(&mut self.mode, AppMode::Normal) {
+            AppMode::Confirm(m) => Some(m),
+            other => {
+                self.mode = other;
+                None
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum ModalAction {
     Upgrade(String, bool), // name, is_cask
     Remove(String, bool),
@@ -272,16 +312,16 @@ pub fn run_menu_action(app: &mut App, idx: usize) {
     };
     match idx {
         0 => {
-            app.modal = Some(Modal {
-                text: format!("Upgrade '{}'? (y/n)", p.name),
-                confirm: ModalAction::Upgrade(p.name, p.cask),
-            });
+            app.mode = AppMode::Confirm(modal(
+                format!("Upgrade '{}'? (y/n)", p.name),
+                ModalAction::Upgrade(p.name, p.cask),
+            ))
         }
         1 => {
-            app.modal = Some(Modal {
-                text: format!("Remove '{}'? (y/n)", p.name),
-                confirm: ModalAction::Remove(p.name, p.cask),
-            });
+            app.mode = AppMode::Confirm(modal(
+                format!("Remove '{}'? (y/n)", p.name),
+                ModalAction::Remove(p.name, p.cask),
+            ))
         }
         2 => spawn_brew(app, &["info".into(), p.name]),
         3 => spawn_brew(app, &["deps".into(), p.name]),
@@ -564,22 +604,17 @@ mod tests {
             catalog: Vec::new(),
             installs: Default::default(),
             search: String::new(),
-            searching: false,
-            installing: false,
-            install_input: String::new(),
+            prompt_buffer: String::new(),
+            mode: AppMode::Normal,
             output: Vec::new(),
             cmd_rx: None,
-            modal: None,
-            menu: None,
             frame: 0,
             load_rx: None,
             services: Vec::new(),
             taps: Vec::new(),
             vulns: Default::default(),
             catalog_rx: None,
-            help: false,
             theme: crate::theme::DEFAULT,
-            theme_picker: None,
         };
         app.apply_section();
         assert_eq!(app.filtered.len(), 2);
@@ -611,22 +646,17 @@ mod tests {
             catalog: Vec::new(),
             installs: Default::default(),
             search: String::new(),
-            searching: false,
-            installing: false,
-            install_input: String::new(),
+            prompt_buffer: String::new(),
+            mode: AppMode::Normal,
             output: Vec::new(),
             cmd_rx: None,
-            modal: None,
-            menu: None,
             frame: 0,
             load_rx: None,
             services: Vec::new(),
             taps: Vec::new(),
             vulns: Default::default(),
             catalog_rx: None,
-            help: false,
             theme: crate::theme::DEFAULT,
-            theme_picker: None,
         };
         app.apply_section();
         app
