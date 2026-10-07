@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            targets: "x86_64-apple-darwin, aarch64-apple-darwin"
+          - os: ubuntu-latest
+            targets: "x86_64-unknown-linux-gnu"
+    runs-on: ${{ matrix.os }}
+    env:
+      TARGETS: ${{ matrix.targets }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in ${TARGETS//,/ }; do
+            cargo build --release --target "$target"
+          done
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in ${TARGETS//,/ }; do
+            cp "target/$target/release/lazybrew" "dist/lazybrew-$target"
+            tar -czf "dist/lazybrew-$target.tar.gz" -C dist "lazybrew-$target"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lazybrew-${{ matrix.os }}
+          path: dist/*.tar.gz
+
+  release:
+    name: publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          gh release create "$tag" dist/*.tar.gz \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$tag" \
+            --notes "A lazygit-inspired, btop-styled TUI for Homebrew. See the README in the repository for features and keybindings."
