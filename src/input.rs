@@ -6,22 +6,36 @@
 //! `help_text`) live here so render code can reuse them.
 
 use crate::state::{AppState, Section};
+
+#[cfg(test)]
 use crossterm::event::{KeyEvent, MouseEvent};
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyFlow {
     Continue,
     Quit,
 }
 
-/// Translate a key event into a state transition.
+/// Translate a key event into a state transition. Runs the update step and
+/// reports whether the app should quit. This is the test-facing entry point:
+/// the runtime drives `update()` directly.
+#[cfg(test)]
 pub fn handle_key(state: &mut AppState, key: KeyEvent) -> KeyFlow {
-    crate::update::update(state, crate::action::Action::Key(key))
+    if crate::update::update(state, crate::action::Action::Key(key))
+        .contains(&crate::effect::Effect::Quit)
+    {
+        KeyFlow::Quit
+    } else {
+        KeyFlow::Continue
+    }
 }
 
-/// Translate a mouse event into a state transition.
+/// Translate a mouse event into a state transition. Never quits.
+#[cfg(test)]
 pub fn handle_mouse(state: &mut AppState, e: MouseEvent) -> KeyFlow {
-    crate::update::update(state, crate::action::Action::Mouse(e))
+    crate::update::update(state, crate::action::Action::Mouse(e));
+    KeyFlow::Continue
 }
 
 /// Candidate names for the type-a-name prompt: prefix matches against the

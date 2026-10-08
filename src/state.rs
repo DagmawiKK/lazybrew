@@ -9,17 +9,6 @@
 
 use crate::brew::Package;
 use crate::theme::Theme;
-use std::sync::mpsc;
-
-/// Events streamed from a running background command (brew, vulns, self-update).
-pub enum CmdEvent {
-    Line(String),
-    Done(bool),
-    /// Vulnerability scan finished: package name, list of advisory summaries.
-    Vulns(String, Vec<String>),
-    /// `brew vulns` is not installed.
-    VulnsMissing,
-}
 
 /// Payload of a background `brew`/system data load.
 pub type LoadResult = (Vec<Package>, Vec<String>, Vec<Package>, Vec<Package>);
@@ -132,11 +121,12 @@ pub struct AppState {
     pub output: Vec<String>,
     /// Rows scrolled back from the output tail (PageUp/PageDown).
     pub output_offset: usize,
-    // Background receivers. Fields only — used by the pre-split plumbing in
-    // `app.rs`/`main.rs`; commit B moves them out of the model entirely.
-    pub cmd_rx: Option<mpsc::Receiver<CmdEvent>>,
-    pub load_rx: Option<mpsc::Receiver<LoadResult>>,
-    pub catalog_rx: Option<mpsc::Receiver<CatalogData>>,
+    /// A background command (brew/vulns/self-update) is running.
+    pub cmd_active: bool,
+    /// The installed-data load is pending (footer spinner).
+    pub loading_packages: bool,
+    /// The remote catalog load is pending (footer spinner).
+    pub loading_catalog: bool,
     pub frame: usize,
     pub catalog: Vec<Package>,
     /// 90-day install analytics, by package name.
@@ -171,9 +161,10 @@ impl Default for AppState {
             mode: AppMode::Normal,
             output: Vec::new(),
             output_offset: 0,
-            cmd_rx: None,
-            load_rx: None,
-            catalog_rx: None,
+            cmd_active: false,
+            // The runtime spawns the first installed-data load at boot.
+            loading_packages: true,
+            loading_catalog: false,
             frame: 0,
             catalog: Vec::new(),
             installs: Default::default(),

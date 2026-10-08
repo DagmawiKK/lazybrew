@@ -1,12 +1,12 @@
 //! Rendering.
 
-use crate::app::{App, AppMode, Panel, Section, SortMode, spinner};
 use crate::brew::DeprecationKind;
 use crate::catalog;
+use crate::state::{AppMode, AppState, Panel, Section, SortMode, spinner};
 use crate::theme::{THEMES, Theme};
 use ratatui::{prelude::*, widgets::*};
 
-pub fn render(f: &mut Frame, app: &App) {
+pub fn render(f: &mut Frame, app: &AppState) {
     let th = app.theme;
     // Paint the whole frame with the theme background so the UI never
     // inherits an unexpected terminal background.
@@ -46,9 +46,9 @@ pub fn render(f: &mut Frame, app: &App) {
     render_overlays(f, app);
 }
 
-fn render_header(f: &mut Frame, app: &App, area: Rect) {
+fn render_header(f: &mut Frame, app: &AppState, area: Rect) {
     let th = app.theme;
-    let pulse_frame = if app.cmd_rx.is_some() {
+    let pulse_frame = if app.cmd_active {
         app.frame * 3
     } else {
         app.frame
@@ -101,7 +101,7 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-fn render_search_row(f: &mut Frame, app: &App, area: Rect) {
+fn render_search_row(f: &mut Frame, app: &AppState, area: Rect) {
     let th = app.theme;
     match app.mode {
         AppMode::Prompt => {
@@ -149,7 +149,7 @@ fn section_color(th: &Theme, section: Section) -> Color {
     }
 }
 
-fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
+fn render_sidebar(f: &mut Frame, app: &AppState, area: Rect) {
     let th = app.theme;
     let items: Vec<ListItem> = app
         .sections
@@ -177,7 +177,7 @@ fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
     f.render_stateful_widget(sidebar, area, &mut state);
 }
 
-fn render_table(f: &mut Frame, app: &App, area: Rect) {
+fn render_table(f: &mut Frame, app: &AppState, area: Rect) {
     let th = app.theme;
     let show_installs =
         app.sections[app.section_idx] == Section::Catalog || app.sort == SortMode::Installs;
@@ -318,7 +318,7 @@ fn kv_line<'a>(th: &Theme, key: &'a str, value: Span<'a>, value_style: Style) ->
     ])
 }
 
-fn render_details(f: &mut Frame, app: &App, area: Rect) {
+fn render_details(f: &mut Frame, app: &AppState, area: Rect) {
     let th = app.theme;
     let mut lines: Vec<Line> = Vec::new();
     match app.selected() {
@@ -442,7 +442,7 @@ fn render_details(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(details, area);
 }
 
-fn render_output(f: &mut Frame, app: &App, area: Rect) {
+fn render_output(f: &mut Frame, app: &AppState, area: Rect) {
     let th = app.theme;
     let inner_height = area.height.saturating_sub(2) as usize;
     let total = app.output.len();
@@ -455,7 +455,7 @@ fn render_output(f: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let mut title: Vec<Span> = Vec::new();
-    if app.cmd_rx.is_some() {
+    if app.cmd_active {
         title.push(Span::raw(" Output "));
         title.push(Span::styled(
             spinner(app).to_string(),
@@ -482,10 +482,10 @@ fn render_output(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(output, area);
 }
 
-fn render_footer(f: &mut Frame, app: &App, area: Rect) {
+fn render_footer(f: &mut Frame, app: &AppState, area: Rect) {
     let th = app.theme;
-    if app.load_rx.is_some() || app.catalog_rx.is_some() {
-        let what = if app.load_rx.is_some() {
+    if app.loading_packages || app.loading_catalog {
+        let what = if app.loading_packages {
             "loading Homebrew data"
         } else {
             "loading catalog (once a day)"
@@ -548,7 +548,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn render_overlays(f: &mut Frame, app: &App) {
+fn render_overlays(f: &mut Frame, app: &AppState) {
     let th = app.theme;
     match &app.mode {
         AppMode::Confirm(modal) => {
@@ -563,7 +563,7 @@ fn render_overlays(f: &mut Frame, app: &App) {
             );
         }
         AppMode::Menu(menu_idx) => {
-            let lines: Vec<Line> = crate::app::MENU_ACTIONS
+            let lines: Vec<Line> = crate::state::MENU_ACTIONS
                 .iter()
                 .enumerate()
                 .map(|(i, it)| {
@@ -625,7 +625,7 @@ fn render_overlays(f: &mut Frame, app: &App) {
     }
 }
 
-fn render_theme_picker(f: &mut Frame, app: &App, pick: usize) {
+fn render_theme_picker(f: &mut Frame, app: &AppState, pick: usize) {
     let th = app.theme;
     let lines: Vec<Line> = THEMES
         .iter()
@@ -695,8 +695,8 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{App, Panel};
     use crate::brew::{Deprecation, DeprecationKind, Package};
+    use crate::state::{AppState, Panel};
     use ratatui::backend::TestBackend;
 
     fn pkg(name: &str, outdated: bool, cask: bool) -> Package {
@@ -714,8 +714,8 @@ mod tests {
         }
     }
 
-    fn test_app() -> App {
-        let mut app = App {
+    fn test_app() -> AppState {
+        let mut app = AppState {
             sections: vec![
                 Section::Installed,
                 Section::Outdated,
@@ -724,31 +724,11 @@ mod tests {
                 Section::Catalog,
                 Section::Services,
             ],
-            brewfile_path: None,
-            brewfile_entries: Vec::new(),
-            brewfile: Vec::new(),
             packages: vec![pkg("git", false, false), pkg("firefox", true, true)],
-            filtered: Vec::new(),
             section_idx: 0,
             list_idx: 0,
             panel: Panel::Sidebar,
-            sort: SortMode::Natural,
-            leaves: vec![],
-            catalog: Vec::new(),
-            installs: Default::default(),
-            taps: Vec::new(),
-            services: Vec::new(),
-            vulns: Default::default(),
-            search: String::new(),
-            prompt_buffer: String::new(),
-            mode: AppMode::Normal,
-            output: Vec::new(),
-            output_offset: 0,
-            cmd_rx: None,
-            frame: 0,
-            load_rx: None,
-            catalog_rx: None,
-            theme: crate::theme::DEFAULT,
+            ..AppState::default()
         };
         app.apply_section();
         app
@@ -849,8 +829,8 @@ mod tests {
 #[cfg(test)]
 mod preview {
     use super::*;
-    use crate::app::{App, Panel};
     use crate::brew::Package;
+    use crate::state::{AppState, Panel};
     use ratatui::backend::TestBackend;
 
     #[test]
@@ -867,7 +847,7 @@ mod preview {
             deprecation: None,
             tap: None,
         };
-        let mut app = App {
+        let mut app = AppState {
             sections: vec![
                 Section::Installed,
                 Section::Outdated,
@@ -876,36 +856,21 @@ mod preview {
                 Section::Catalog,
                 Section::Services,
             ],
-            brewfile_path: None,
-            brewfile_entries: Vec::new(),
-            brewfile: Vec::new(),
             packages: vec![
                 mk("git", false, false),
                 mk("openssl@3", true, false),
                 mk("firefox", true, true),
                 mk("zsh", false, false),
             ],
-            filtered: Vec::new(),
             section_idx: 0,
             list_idx: 1,
             panel: Panel::List,
-            sort: SortMode::Natural,
             leaves: vec!["git".into(), "zsh".into()],
-            catalog: Vec::new(),
-            installs: Default::default(),
-            taps: Vec::new(),
-            services: Vec::new(),
-            vulns: Default::default(),
-            search: String::new(),
-            prompt_buffer: String::new(),
-            mode: AppMode::Normal,
             output: vec!["$ brew install git".into(), "== done ==".into()],
             output_offset: 2,
-            cmd_rx: None,
             frame: 3,
-            load_rx: None,
-            catalog_rx: None,
-            theme: crate::theme::DEFAULT,
+            loading_packages: false,
+            ..AppState::default()
         };
         app.apply_section();
         let backend = TestBackend::new(100, 30);

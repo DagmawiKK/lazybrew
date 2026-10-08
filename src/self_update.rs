@@ -1,12 +1,12 @@
 //! Self-update: download the newest GitHub release tarball for the current
 //! platform and replace the running binary.
 //!
-//! Lives behind [`App::SelfUpdate`](`crate::app::ModalAction::SelfUpdate`) and
+//! Lives behind [`crate::state::ModalAction::SelfUpdate`] and
 //! streams its progress through the same output pane as brew commands. Uses
 //! `curl` + `tar` (present on every macOS/Linux Homebrew host) so no HTTP
 //! dependency is needed.
 
-use crate::app::CmdEvent;
+use crate::exec::CmdEvent;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
@@ -64,7 +64,7 @@ pub fn run(tx: &mpsc::Sender<CmdEvent>, url: &str, target: &str, exe: &Path) -> 
     curl.args(["-fsSL", "--retry", "2", "-o"])
         .arg(&tarball)
         .arg(url);
-    if !crate::app::stream_cmd(tx, &mut curl) {
+    if !crate::exec::stream_cmd(tx, &mut curl) {
         line(format!(
             "download failed — is the release published? ({} → {})",
             url,
@@ -77,7 +77,7 @@ pub fn run(tx: &mpsc::Sender<CmdEvent>, url: &str, target: &str, exe: &Path) -> 
     // 3. Extract. CI packs the binary as `lazybrew-<target>` inside the tarball.
     let mut tar = std::process::Command::new("tar");
     tar.arg("-xzf").arg(&tarball).arg("-C").arg(&dir);
-    if !crate::app::stream_cmd(tx, &mut tar) {
+    if !crate::exec::stream_cmd(tx, &mut tar) {
         line(format!("extract failed: {}", tarball.display()));
         let _ = std::fs::remove_dir_all(&dir);
         return false;
