@@ -1,105 +1,41 @@
-//! Keyboard handling.
+//! Input entry points.
+//!
+//! After the Action split these are thin wrappers: keys and mouse events are
+//! boxed into [`crate::action::Action`] and folded in by
+//! [`crate::update::update`]. The pure query helpers (`completions`,
+//! `help_text`) live here so render code can reuse them.
 
-use crate::app::{
-    App, AppMode, ModalAction, Panel, Section, modal, run_menu_action, run_modal_action, spawn_brew,
-};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crate::state::{AppState, Section};
+use crossterm::event::{KeyEvent, MouseEvent};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyFlow {
     Continue,
     Quit,
 }
 
-/// Translate a mouse event into navigation. Hit-testing matches `ui.rs`:
-/// the sidebar is 24 columns wide, starting at row 2 (border) with section
-/// rows from 3; the list table's data rows begin at row 4.
-pub fn handle_mouse(app: &mut App, e: MouseEvent) -> KeyFlow {
-    // Overlays and prompts own input; the pointer only navigates in Normal.
-    if !matches!(app.mode, AppMode::Normal) {
-        return KeyFlow::Continue;
-    }
-    match e.kind {
-        MouseEventKind::ScrollUp => {
-            if app.panel == Panel::List {
-                app.list_idx = app.list_idx.saturating_sub(1);
-            }
-        }
-        MouseEventKind::ScrollDown => {
-            if app.panel == Panel::List && app.list_idx + 1 < app.filtered.len() {
-                app.list_idx += 1;
-            }
-        }
-        MouseEventKind::Down(MouseButton::Left) => {
-            let col = e.column as i32;
-            let row = e.row as i32;
-            if col < 24 {
-                // Sidebar: pick the section under the click, then jump to the list.
-                let idx = ((row - 3).clamp(0, app.sections.len() as i32 - 1)) as usize;
-                if idx != app.section_idx {
-                    app.section_idx = idx;
-                    app.apply_section();
-                }
-                app.panel = Panel::List;
-            } else if row >= 4 && !app.filtered.is_empty() {
-                app.list_idx = ((row - 4) as usize).min(app.filtered.len() - 1);
-                app.panel = Panel::List;
-            }
-        }
-        _ => {}
-    }
-    KeyFlow::Continue
+/// Translate a key event into a state transition.
+pub fn handle_key(state: &mut AppState, key: KeyEvent) -> KeyFlow {
+    crate::update::update(state, crate::action::Action::Key(key))
 }
 
-pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyFlow {
-    // Exactly one mode is active; dispatch by it. Overlays handle their own
-    // keys and never leak into list navigation (or vice versa).
-    match app.mode {
-        AppMode::Normal => handle_normal(app, key),
-        AppMode::Search => handle_search(app, key),
-        AppMode::Prompt => handle_prompt(app, key),
-        AppMode::Confirm(_) => handle_confirm(app, key),
-        AppMode::Menu(_) => handle_menu(app, key),
-        AppMode::ThemePicker(_) => handle_theme_picker(app, key),
-        AppMode::Help => {
-            app.mode = AppMode::Normal;
-            KeyFlow::Continue
-        }
-    }
-}
-
-fn handle_search(app: &mut App, key: KeyEvent) -> KeyFlow {
-    match key.code {
-        KeyCode::Enter => app.mode = AppMode::Normal,
-        KeyCode::Esc => {
-            app.search.clear();
-            app.apply_section();
-            app.mode = AppMode::Normal;
-        }
-        KeyCode::Backspace => {
-            app.search.pop();
-            app.apply_section();
-        }
-        KeyCode::Char(c) => {
-            app.search.push(c);
-            app.apply_section();
-        }
-        _ => {}
-    }
-    KeyFlow::Continue
+/// Translate a mouse event into a state transition.
+pub fn handle_mouse(state: &mut AppState, e: MouseEvent) -> KeyFlow {
+    crate::update::update(state, crate::action::Action::Mouse(e))
 }
 
 /// Candidate names for the type-a-name prompt: prefix matches against the
 /// current section's data (catalog when loaded, else installed packages;
 /// tap names in the Taps section). Sorted, deduped, capped for the hint row.
-pub fn completions(app: &App) -> Vec<String> {
-    let source: &[crate::brew::Package] = if app.sections[app.section_idx] == Section::Taps {
-        &app.taps
-    } else if !app.catalog.is_empty() {
-        &app.catalog
+pub fn completions(state: &AppState) -> Vec<String> {
+    let source: &[crate::brew::Package] = if state.sections[state.section_idx] == Section::Taps {
+        &state.taps
+    } else if !state.catalog.is_empty() {
+        &state.catalog
     } else {
-        &app.packages
+        &state.packages
     };
-    let q = app.prompt_buffer.to_lowercase();
+    let q = state.prompt_buffer.to_lowercase();
     let mut names: Vec<String> = source
         .iter()
         .map(|p| p.name.clone())
@@ -109,384 +45,6 @@ pub fn completions(app: &App) -> Vec<String> {
     names.dedup();
     names.truncate(9);
     names
-}
-
-fn handle_prompt(app: &mut App, key: KeyEvent) -> KeyFlow {
-    match key.code {
-        KeyCode::Enter => {
-            let name = app.prompt_buffer.trim().to_string();
-            app.prompt_buffer.clear();
-            app.mode = AppMode::Normal;
-            if !name.is_empty() {
-                let action = if app.sections[app.section_idx] == Section::Taps {
-                    ModalAction::Tap(name.clone())
-                } else {
-                    ModalAction::Install(name.clone(), false)
-                };
-                app.mode = AppMode::Confirm(modal(format!("Install '{}'? (y/n)", name), action));
-            }
-        }
-        KeyCode::Tab => {
-            let cands = completions(app);
-            if let Some(pos) = cands.iter().position(|c| *c == app.prompt_buffer) {
-                app.prompt_buffer = cands[(pos + 1) % cands.len()].clone();
-            } else if let Some(first) = cands.first() {
-                app.prompt_buffer = first.clone();
-            }
-        }
-        KeyCode::Esc => {
-            app.prompt_buffer.clear();
-            app.mode = AppMode::Normal;
-        }
-        KeyCode::Backspace => {
-            app.prompt_buffer.pop();
-        }
-        KeyCode::Char(c) => app.prompt_buffer.push(c),
-        _ => {}
-    }
-    KeyFlow::Continue
-}
-
-fn handle_confirm(app: &mut App, key: KeyEvent) -> KeyFlow {
-    let Some(modal) = app.take_modal() else {
-        return KeyFlow::Continue;
-    };
-    match key.code {
-        KeyCode::Char('y') | KeyCode::Enter => run_modal_action(app, &modal),
-        _ => {}
-    }
-    KeyFlow::Continue
-}
-
-fn handle_menu(app: &mut App, key: KeyEvent) -> KeyFlow {
-    let last = crate::app::MENU_ACTIONS.len() - 1;
-    let idx = match app.mode {
-        AppMode::Menu(i) => i,
-        _ => return KeyFlow::Continue,
-    };
-    match key.code {
-        KeyCode::Esc | KeyCode::Char('x') => app.mode = AppMode::Normal,
-        KeyCode::Down | KeyCode::Char('j') => {
-            app.mode = AppMode::Menu((idx + 1) % crate::app::MENU_ACTIONS.len())
-        }
-        KeyCode::Up | KeyCode::Char('k') => {
-            app.mode = AppMode::Menu(idx.checked_sub(1).unwrap_or(last))
-        }
-        KeyCode::Enter => {
-            app.mode = AppMode::Normal;
-            run_menu_action(app, idx);
-        }
-        KeyCode::Char(c) => match c {
-            'u' => {
-                app.mode = AppMode::Normal;
-                run_menu_action(app, 0);
-            }
-            'R' => {
-                app.mode = AppMode::Normal;
-                run_menu_action(app, 1);
-            }
-            'r' => {
-                app.mode = AppMode::Normal;
-                run_menu_action(app, 2);
-            }
-            'i' => {
-                app.mode = AppMode::Normal;
-                run_menu_action(app, 3);
-            }
-            'd' => {
-                app.mode = AppMode::Normal;
-                run_menu_action(app, 4);
-            }
-            'p' => {
-                app.mode = AppMode::Normal;
-                run_menu_action(app, 5);
-            }
-            'o' => {
-                app.mode = AppMode::Normal;
-                run_menu_action(app, 6);
-            }
-            _ => {}
-        },
-        _ => {}
-    }
-    KeyFlow::Continue
-}
-
-fn handle_theme_picker(app: &mut App, key: KeyEvent) -> KeyFlow {
-    let pick = match app.mode {
-        AppMode::ThemePicker(i) => i,
-        _ => return KeyFlow::Continue,
-    };
-    match key.code {
-        KeyCode::Esc | KeyCode::Char('t') => app.mode = AppMode::Normal,
-        KeyCode::Down | KeyCode::Char('j') => {
-            app.mode = AppMode::ThemePicker((pick + 1) % crate::theme::THEMES.len())
-        }
-        KeyCode::Up | KeyCode::Char('k') => {
-            app.mode = AppMode::ThemePicker(
-                pick.checked_sub(1)
-                    .unwrap_or(crate::theme::THEMES.len() - 1),
-            )
-        }
-        KeyCode::Enter => {
-            let chosen = crate::theme::THEMES[pick];
-            app.theme = chosen;
-            app.mode = AppMode::Normal;
-            crate::theme::save(&chosen);
-        }
-        _ => {}
-    }
-    KeyFlow::Continue
-}
-
-fn install_confirm_text(p: &crate::brew::Package) -> String {
-    match p.tap.as_deref().filter(|t| !crate::app::is_official_tap(t)) {
-        Some(tap) => format!("Install '{}' from tap '{tap}' (unverified)? (y/n)", p.name),
-        None => format!("Install '{}'? (y/n)", p.name),
-    }
-}
-
-fn handle_normal(app: &mut App, key: KeyEvent) -> KeyFlow {
-    match key.code {
-        KeyCode::Char('/') => app.mode = AppMode::Search,
-        KeyCode::Char('I') => {
-            if app.sections[app.section_idx] == Section::Brewfile {
-                let missing = app.brewfile_missing();
-                app.mode = AppMode::Confirm(modal(
-                    format!("Install {missing} missing Brewfile packages? (y/n)"),
-                    ModalAction::BrewfileInstall,
-                ));
-            } else {
-                // Explicit "type the name" install.
-                app.prompt_buffer.clear();
-                app.mode = AppMode::Prompt;
-            }
-        }
-        KeyCode::Char('R') => {
-            if app.sections[app.section_idx] == Section::Brewfile {
-                app.mode = AppMode::Confirm(modal(
-                    format!("Remove all {} Brewfile packages? (y/n)", app.brewfile.len()),
-                    ModalAction::BrewfileRemove,
-                ));
-            }
-        }
-        KeyCode::Char('v') => {
-            if let Some(p) = app.selected().cloned()
-                && !p.cask
-                && app.sections[app.section_idx] != Section::Services
-            {
-                crate::app::spawn_vuln_scan(app, p.name);
-            } else {
-                app.output
-                    .push("vuln scan only available for formulae".into());
-            }
-        }
-        KeyCode::Char('s') => {
-            if app.sections[app.section_idx] == Section::Services
-                && let Some(p) = app.selected().cloned()
-            {
-                let running = p.service_status.as_deref() == Some("started");
-                let verb = if running { "stop" } else { "start" };
-                spawn_brew(app, &["services".into(), verb.into(), p.name]);
-            }
-        }
-        KeyCode::Char('S') => {
-            app.sort = app.sort.next();
-            app.apply_section();
-            app.output.push(format!("sort: {}", app.sort.label()));
-        }
-        KeyCode::Char('D') => spawn_brew(app, &["doctor".into()]),
-        KeyCode::Char('C') => spawn_brew(app, &["config".into()]),
-        KeyCode::Char('W') => {
-            let target = crate::self_update::target_triple();
-            let url = crate::self_update::download_url(target);
-            let exe = std::env::current_exe().unwrap_or_else(|_| "lazybrew".into());
-            app.mode = AppMode::Confirm(modal(
-                crate::self_update::plan_text(&url, &exe),
-                ModalAction::SelfUpdate,
-            ));
-        }
-        KeyCode::Char('B') => {
-            if let Some(path) = app.brewfile_path.clone() {
-                spawn_brew(
-                    app,
-                    &["bundle".into(), "check".into(), format!("--file={path}")],
-                );
-            } else {
-                app.output
-                    .push("no Brewfile loaded — start lazybrew with -f <path-or-url>".into());
-            }
-        }
-        KeyCode::Char('t') => {
-            app.mode = AppMode::ThemePicker(crate::theme::index_of(&app.theme));
-        }
-        KeyCode::Char('x') => {
-            if app.selected().is_some() {
-                app.mode = AppMode::Menu(0);
-            }
-        }
-        KeyCode::Char('?') => app.mode = AppMode::Help,
-        KeyCode::Char('e') => {
-            let home = dirs::home_dir().unwrap_or_else(|| ".".into());
-            let path = home.join("Brewfile");
-            spawn_brew(
-                app,
-                &[
-                    "bundle".into(),
-                    "dump".into(),
-                    "--force".into(),
-                    format!("--file={}", path.display()),
-                ],
-            );
-            app.output
-                .push(format!("Brewfile written to {}", path.display()));
-        }
-        KeyCode::Char('u') => {
-            if let Some(p) = app.selected() {
-                let p = p.clone();
-                app.mode = AppMode::Confirm(modal(
-                    format!("Upgrade '{}'? (y/n)", p.name),
-                    ModalAction::Upgrade(p.name, p.cask),
-                ));
-            }
-        }
-        KeyCode::Char('r') => {
-            if app.sections[app.section_idx] == Section::Taps {
-                if let Some(p) = app.selected().cloned() {
-                    app.mode = AppMode::Confirm(modal(
-                        format!("Untap '{}'? (y/n)", p.name),
-                        ModalAction::Untap(p.name),
-                    ));
-                }
-            } else if let Some(p) = app.selected().cloned() {
-                app.mode = AppMode::Confirm(modal(
-                    format!("Remove '{}'? (y/n)", p.name),
-                    ModalAction::Remove(p.name, p.cask),
-                ));
-            }
-        }
-        KeyCode::Char('A') => {
-            app.mode = AppMode::Confirm(modal(
-                format!(
-                    "Upgrade all {} outdated packages? (y/n)",
-                    app.count_for(Section::Outdated)
-                ),
-                ModalAction::UpgradeAll,
-            ));
-        }
-        KeyCode::Char('K') => {
-            app.mode = AppMode::Confirm(modal("Run 'brew cleanup'? (y/n)", ModalAction::Cleanup));
-        }
-        KeyCode::Char('n') => {
-            app.mode = AppMode::Confirm(modal(
-                "Run 'brew autoremove'? (y/n)",
-                ModalAction::Autoremove,
-            ));
-        }
-        KeyCode::Char('U') => {
-            app.mode = AppMode::Confirm(modal("Run 'brew update'? (y/n)", ModalAction::Update));
-        }
-        KeyCode::Char('i') => {
-            if app.sections[app.section_idx] == Section::Taps {
-                // Adding a NEW tap still needs a typed name.
-                app.prompt_buffer.clear();
-                app.mode = AppMode::Prompt;
-            } else if let Some(p) = app.selected().cloned() {
-                if p.installed_version.is_some() || p.service_status.is_some() {
-                    let detail = p.installed_version.unwrap_or_else(|| "installed".into());
-                    app.output.push(format!(
-                        "{} is already installed ({}) — u upgrades, r removes",
-                        p.name, detail
-                    ));
-                } else {
-                    app.mode = AppMode::Confirm(modal(
-                        install_confirm_text(&p),
-                        ModalAction::Install(p.name, p.cask),
-                    ));
-                }
-            } else {
-                // Nothing selected: fall back to typing a name.
-                app.prompt_buffer.clear();
-                app.mode = AppMode::Prompt;
-            }
-        }
-        KeyCode::Char('q') => return KeyFlow::Quit,
-        KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-            app.panel = match app.panel {
-                Panel::Sidebar => Panel::List,
-                Panel::List => Panel::Sidebar,
-            };
-        }
-        KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-            app.panel = match app.panel {
-                Panel::Sidebar => Panel::List,
-                Panel::List => Panel::Sidebar,
-            };
-        }
-        KeyCode::Down | KeyCode::Char('j') => match app.panel {
-            Panel::Sidebar => {
-                app.section_idx = (app.section_idx + 1) % app.sections.len();
-                app.apply_section();
-            }
-            Panel::List => {
-                if app.list_idx + 1 < app.filtered.len() {
-                    app.list_idx += 1;
-                }
-            }
-        },
-        KeyCode::Up | KeyCode::Char('k') => match app.panel {
-            Panel::Sidebar => {
-                app.section_idx = app
-                    .section_idx
-                    .checked_sub(1)
-                    .unwrap_or(app.sections.len() - 1);
-                app.apply_section();
-            }
-            Panel::List => {
-                app.list_idx = app.list_idx.saturating_sub(1);
-            }
-        },
-        KeyCode::Enter => {
-            if app.panel == Panel::Sidebar {
-                app.panel = Panel::List;
-            }
-        }
-        KeyCode::Esc => {
-            if !app.search.is_empty() {
-                app.search.clear();
-                app.apply_section();
-            }
-        }
-        KeyCode::PageUp => {
-            if !app.output.is_empty() {
-                app.output_offset += 1;
-            }
-        }
-        KeyCode::PageDown => {
-            app.output_offset = app.output_offset.saturating_sub(1);
-        }
-        KeyCode::Char('g') => {
-            if app.panel == Panel::List {
-                app.list_idx = 0;
-            } else {
-                app.section_idx = 0;
-                app.apply_section();
-            }
-        }
-        KeyCode::Char('G') => {
-            if app.panel == Panel::List {
-                app.list_idx = app.filtered.len().saturating_sub(1);
-            } else {
-                app.section_idx = app.sections.len() - 1;
-                app.apply_section();
-            }
-        }
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            return KeyFlow::Quit;
-        }
-        _ => {}
-    }
-    KeyFlow::Continue
 }
 
 /// All keybindings, listed in the help overlay.
@@ -537,8 +95,9 @@ pub fn help_text() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::SortMode;
     use crate::brew::Package;
+    use crate::state::{AppMode, ModalAction, Panel, SortMode};
+    use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 
     fn pkg(name: &str, installed: bool, cask: bool) -> Package {
         Package {
@@ -555,8 +114,8 @@ mod tests {
         }
     }
 
-    fn app_with(p: Package) -> App {
-        let mut app = App {
+    fn app_with(p: Package) -> AppState {
+        let mut app = AppState {
             sections: vec![
                 Section::Installed,
                 Section::Outdated,
@@ -565,31 +124,8 @@ mod tests {
                 Section::Catalog,
                 Section::Services,
             ],
-            brewfile_path: None,
-            brewfile_entries: Vec::new(),
-            brewfile: Vec::new(),
             packages: vec![p],
-            filtered: Vec::new(),
-            section_idx: 0,
-            list_idx: 0,
-            panel: Panel::Sidebar,
-            sort: SortMode::Natural,
-            leaves: Vec::new(),
-            catalog: Vec::new(),
-            installs: Default::default(),
-            taps: Vec::new(),
-            services: Vec::new(),
-            vulns: Default::default(),
-            search: String::new(),
-            prompt_buffer: String::new(),
-            mode: AppMode::Normal,
-            output: Vec::new(),
-            output_offset: 0,
-            cmd_rx: None,
-            frame: 0,
-            load_rx: None,
-            catalog_rx: None,
-            theme: crate::theme::DEFAULT,
+            ..AppState::default()
         };
         app.apply_section();
         app
@@ -608,7 +144,7 @@ mod tests {
         }
     }
 
-    fn app_with_packages(names: &[&str]) -> App {
+    fn app_with_packages(names: &[&str]) -> AppState {
         let mut app = app_with(pkg(names[0], false, false));
         for n in &names[1..] {
             app.packages.push(pkg(n, false, false));

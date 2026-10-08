@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::process::Command;
 
 /// A unified Homebrew package (formula or cask).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Package {
     pub name: String,
     pub desc: String,

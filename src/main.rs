@@ -1,11 +1,14 @@
+mod action;
 mod app;
 mod brew;
 mod brewfile;
 mod catalog;
 mod input;
 mod self_update;
+mod state;
 mod theme;
 mod ui;
+mod update;
 
 use anyhow::Result;
 use app::{

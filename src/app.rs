@@ -1,321 +1,28 @@
-//! Application state and brew command execution.
+//! Legacy aggregator while the App split lands.
+//!
+//! The model lives in `state.rs`, the handlers in `update.rs`, and the
+//! input seam in `action.rs`. Commit B replaces this module with
+//! `effect.rs` + `exec.rs` + `runtime.rs` and deletes it.
+//!
+//! For now it re-exports the state types (so `crate::app::App` etc. still
+//! resolve) and hosts the background command plumbing, which still mutates
+//! `App` directly.
 
-use crate::brew::{self, Package};
-use crate::theme::Theme;
+/// Compatibility name while the split lands; all references to
+/// `crate::app::App` resolve to the model in `state.rs`.
+pub use crate::state::AppState as App;
+pub use crate::state::*;
+
 use std::sync::mpsc;
 
-pub enum CmdEvent {
-    Line(String),
-    Done(bool),
-    /// Vulnerability scan finished: package name, list of advisory summaries.
-    Vulns(String, Vec<String>),
-    /// `brew vulns` is not installed.
-    VulnsMissing,
-}
-
-pub type LoadResult = (Vec<Package>, Vec<String>, Vec<Package>, Vec<Package>);
-
-/// 90-day install analytics, `name -> install count`.
-pub type Popularity = std::collections::HashMap<String, u64>;
-
-/// The catalog payload streamed over its own channel.
-pub type CatalogData = (Vec<Package>, Popularity);
-
-/// Sections shown in the lazygit-style left sidebar.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Section {
-    Installed,
-    Outdated,
-    Casks,
-    Leaves,
-    Catalog,
-    Services,
-    Brewfile,
-    Taps,
-}
-
-impl Section {
-    pub fn title(&self) -> &'static str {
-        match self {
-            Section::Installed => "Installed",
-            Section::Outdated => "Outdated",
-            Section::Casks => "Casks",
-            Section::Leaves => "Leaves",
-            Section::Catalog => "Catalog",
-            Section::Services => "Services",
-            Section::Brewfile => "Brewfile",
-            Section::Taps => "Taps",
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Panel {
-    Sidebar,
-    List,
-}
-
-/// How the active section's list is ordered.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortMode {
-    /// Source order (brew/API order).
-    Natural,
-    /// Case-insensitive alphabetical.
-    Name,
-    /// By 90-day install popularity, descending.
-    Installs,
-}
-
-impl SortMode {
-    pub const ALL: [SortMode; 3] = [SortMode::Natural, SortMode::Name, SortMode::Installs];
-
-    pub fn next(self) -> SortMode {
-        Self::ALL[(self as usize + 1) % Self::ALL.len()]
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            SortMode::Natural => "natural",
-            SortMode::Name => "name",
-            SortMode::Installs => "installs",
-        }
-    }
-}
-
-/// The single explicit UI state. Exactly one mode is active at a time —
-/// this replaces the earlier set of independent booleans/options (searching,
-/// installing, modal, menu, help, theme_picker) that could silently collide.
-#[derive(Debug, Clone, PartialEq)]
-pub enum AppMode {
-    /// Browsing the sidebar/list; all default keys active.
-    Normal,
-    /// `/` search is being typed; input goes into `App.search`.
-    Search,
-    /// Type-a-name prompt (`I`, or `i` without a valid selection);
-    /// input goes into `App.prompt_buffer`.
-    Prompt,
-    /// Confirmation dialog.
-    Confirm(Modal),
-    /// Action menu for the selected package.
-    Menu(usize),
-    /// Theme picker overlay.
-    ThemePicker(usize),
-    /// Help overlay — any key closes it.
-    Help,
-}
-
-pub struct App {
-    pub packages: Vec<Package>,
-    pub filtered: Vec<Package>,
-    pub section_idx: usize,
-    pub list_idx: usize,
-    pub panel: Panel,
-    pub sort: SortMode,
-    pub leaves: Vec<String>,
-    pub search: String,
-    pub prompt_buffer: String,
-    /// The active UI state (exactly one mode).
-    pub mode: AppMode,
-    pub output: Vec<String>,
-    /// Lines scrolled back from the output tail (PageUp/PageDown).
-    pub output_offset: usize,
-    pub cmd_rx: Option<mpsc::Receiver<CmdEvent>>,
-    pub frame: usize,
-    pub load_rx: Option<mpsc::Receiver<LoadResult>>,
-    pub catalog_rx: Option<mpsc::Receiver<CatalogData>>,
-    pub catalog: Vec<Package>,
-    /// 90-day install analytics, by package name.
-    pub installs: Popularity,
-    pub taps: Vec<Package>,
-    pub services: Vec<Package>,
-    pub vulns: std::collections::HashMap<String, Vec<String>>,
-    /// Active color theme.
-    pub theme: Theme,
-    /// Sections actually shown in the sidebar (Brewfile only in -f mode).
-    pub sections: Vec<Section>,
-    /// The `-f` Brewfile path/URL, when given.
-    pub brewfile_path: Option<String>,
-    /// Entries parsed from the -f Brewfile.
-    pub brewfile_entries: Vec<crate::brewfile::Entry>,
-    /// Brewfile entries resolved against installed + catalog data.
-    pub brewfile: Vec<Package>,
-}
-
-pub const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-pub fn spinner(app: &App) -> char {
-    SPINNER[app.frame % SPINNER.len()]
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Modal {
-    pub text: String,
-    pub confirm: ModalAction,
-}
-
-/// The actions menu items, in index order; the active index is carried by
-/// `AppMode::Menu`. Shortcut letters lead each label.
-pub const MENU_ACTIONS: &[&str] = &[
-    "u  Upgrade",
-    "R  Reinstall",
-    "r  Remove",
-    "i  Info",
-    "d  Deps",
-    "p  Pin/Unpin",
-    "o  Home",
-];
-
-/// Convenience constructor for confirm dialogs.
-pub fn modal(text: impl Into<String>, confirm: ModalAction) -> Modal {
-    Modal {
-        text: text.into(),
-        confirm,
-    }
-}
-
-/// True for taps maintained by Homebrew itself. Everything else is an
-/// untrusted (third-party) tap that deserves a warning.
-pub fn is_official_tap(tap: &str) -> bool {
-    tap == "homebrew/core" || tap.starts_with("homebrew/cask")
-}
-
-impl App {
-    /// Take and close the confirm dialog, if one is open.
-    pub fn take_modal(&mut self) -> Option<Modal> {
-        match std::mem::replace(&mut self.mode, AppMode::Normal) {
-            AppMode::Confirm(m) => Some(m),
-            other => {
-                self.mode = other;
-                None
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ModalAction {
-    Upgrade(String, bool), // name, is_cask
-    Reinstall(String, bool),
-    Remove(String, bool),
-    Install(String, bool),
-    Update,
-    UpgradeAll,
-    Cleanup,
-    Autoremove,
-    InstallVulns,
-    BrewfileInstall,
-    BrewfileRemove,
-    Tap(String),
-    Untap(String),
-    /// Pull + rebuild lazybrew itself from its source checkout.
-    SelfUpdate,
-}
-
-impl App {
-    pub fn apply_section(&mut self) {
-        let section = self.sections[self.section_idx];
-        let source: &[Package] = match section {
-            Section::Catalog => &self.catalog,
-            Section::Services => &self.services,
-            Section::Brewfile => &self.brewfile,
-            Section::Taps => &self.taps,
-            _ => &self.packages,
-        };
-        let q = self.search.to_lowercase();
-        self.filtered = source
-            .iter()
-            .filter(|p| match section {
-                Section::Catalog | Section::Services | Section::Brewfile | Section::Taps => true,
-                Section::Installed => true,
-                Section::Outdated => p.outdated,
-                Section::Casks => p.cask,
-                Section::Leaves => !p.cask && self.leaves.iter().any(|l| l == &p.name),
-            })
-            .filter(|p| {
-                q.is_empty()
-                    || p.name.to_lowercase().contains(&q)
-                    || p.desc.to_lowercase().contains(&q)
-            })
-            .cloned()
-            .collect();
-        let installs = &self.installs;
-        match self.sort {
-            SortMode::Natural => {}
-            SortMode::Name => self.filtered.sort_by_key(|p| p.name.to_lowercase()),
-            SortMode::Installs => self.filtered.sort_by(|x, y| {
-                let ix = installs.get(&x.name).copied().unwrap_or(0);
-                let iy = installs.get(&y.name).copied().unwrap_or(0);
-                iy.cmp(&ix)
-            }),
-        }
-        self.list_idx = 0;
-    }
-
-    /// Count of items in a section, for the sidebar display.
-    pub fn count_for(&self, section: Section) -> usize {
-        match section {
-            Section::Installed => self.packages.len(),
-            Section::Outdated => self.packages.iter().filter(|p| p.outdated).count(),
-            Section::Casks => self.packages.iter().filter(|p| p.cask).count(),
-            Section::Leaves => self.leaves.len(),
-            Section::Catalog => self.catalog.len(),
-            Section::Services => self.services.len(),
-            Section::Brewfile => self.brewfile.len(),
-            Section::Taps => self.taps.len(),
-        }
-    }
-
-    /// Resolve Brewfile entries against installed and catalog data.
-    pub fn refresh_brewfile(&mut self) {
-        let mut resolved = Vec::with_capacity(self.brewfile_entries.len());
-        for entry in &self.brewfile_entries {
-            let want_cask = matches!(entry.kind, crate::brewfile::EntryKind::Cask);
-            if matches!(entry.kind, crate::brewfile::EntryKind::Tap) {
-                continue;
-            }
-            let pkg = self
-                .packages
-                .iter()
-                .chain(self.catalog.iter())
-                .find(|p| p.name == entry.name && p.cask == want_cask)
-                .cloned()
-                .unwrap_or_else(|| Package {
-                    name: entry.name.clone(),
-                    desc: "(from Brewfile)".into(),
-                    version: "?".into(),
-                    cask: want_cask,
-                    outdated: false,
-                    installed_version: None,
-                    pinned: false,
-                    service_status: None,
-                    deprecation: None,
-                    tap: None,
-                });
-            resolved.push(pkg);
-        }
-        self.brewfile = resolved;
-    }
-
-    /// True when a resolved Brewfile package is not installed yet.
-    pub fn brewfile_missing(&self) -> usize {
-        self.brewfile
-            .iter()
-            .filter(|p| p.installed_version.is_none())
-            .count()
-    }
-
-    pub fn selected(&self) -> Option<&Package> {
-        self.filtered.get(self.list_idx)
-    }
-}
-
+/// Background load of installed packages + leaves + services + taps.
 pub fn spawn_load_thread() -> mpsc::Receiver<LoadResult> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let pkgs = brew::load_installed().unwrap_or_default();
-        let leaves = brew::load_leaves();
-        let services = brew::load_services();
-        let taps = brew::load_taps();
+        let pkgs = crate::brew::load_installed().unwrap_or_default();
+        let leaves = crate::brew::load_leaves();
+        let services = crate::brew::load_services();
+        let taps = crate::brew::load_taps();
         let _ = tx.send((pkgs, leaves, services, taps));
     });
     rx
@@ -323,7 +30,7 @@ pub fn spawn_load_thread() -> mpsc::Receiver<LoadResult> {
 
 /// Spawn the catalog fetch separately so the installed list is never
 /// blocked behind the (much larger) remote catalog download.
-pub fn spawn_catalog_thread(installed: Vec<Package>) -> mpsc::Receiver<CatalogData> {
+pub fn spawn_catalog_thread(installed: Vec<crate::brew::Package>) -> mpsc::Receiver<CatalogData> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let catalog = crate::catalog::load_catalog(&installed).unwrap_or_default();
@@ -332,7 +39,7 @@ pub fn spawn_catalog_thread(installed: Vec<Package>) -> mpsc::Receiver<CatalogDa
     rx
 }
 
-pub fn run_menu_action(app: &mut App, idx: usize) {
+pub fn run_menu_action(app: &mut AppState, idx: usize) {
     let Some(p) = app.selected().cloned() else {
         return;
     };
@@ -367,7 +74,7 @@ pub fn run_menu_action(app: &mut App, idx: usize) {
     }
 }
 
-pub fn run_modal_action(app: &mut App, modal: &Modal) {
+pub fn run_modal_action(app: &mut AppState, modal: &Modal) {
     // Self-update does not go through brew; swap in the newest release binary.
     if matches!(modal.confirm, ModalAction::SelfUpdate) {
         spawn_self_update(app);
@@ -428,7 +135,7 @@ pub fn run_modal_action(app: &mut App, modal: &Modal) {
 
 /// Build the command sequence for batch Brewfile install/remove.
 /// Taps are handled first on install so formulae resolve.
-fn brewfile_commands(app: &App, install: bool) -> Vec<Vec<String>> {
+fn brewfile_commands(app: &AppState, install: bool) -> Vec<Vec<String>> {
     let taps: Vec<String> = app
         .brewfile_entries
         .iter()
@@ -478,12 +185,12 @@ fn brewfile_commands(app: &App, install: bool) -> Vec<Vec<String>> {
     commands
 }
 
-pub fn spawn_brew(app: &mut App, args: &[String]) {
+pub fn spawn_brew(app: &mut AppState, args: &[String]) {
     spawn_brew_multi(app, vec![args.to_vec()]);
 }
 
 /// Run a sequence of brew commands sequentially, streaming output for each.
-pub fn spawn_brew_multi(app: &mut App, commands: Vec<Vec<String>>) {
+pub fn spawn_brew_multi(app: &mut AppState, commands: Vec<Vec<String>>) {
     app.output.clear();
     app.output_offset = 0;
     for c in &commands {
@@ -551,7 +258,7 @@ pub(crate) fn stream_cmd(tx: &mpsc::Sender<CmdEvent>, cmd: &mut std::process::Co
 /// Update lazybrew itself: download the newest GitHub release tarball and
 /// replace the running binary. Progress streams through the output pane,
 /// spawned like any other background command.
-pub fn spawn_self_update(app: &mut App) {
+pub fn spawn_self_update(app: &mut AppState) {
     let target = crate::self_update::target_triple();
     let url = crate::self_update::download_url(target);
     let exe = std::env::current_exe().unwrap_or_else(|_| "lazybrew".into());
@@ -570,7 +277,7 @@ pub fn spawn_self_update(app: &mut App) {
 
 /// Scan the selected package for known vulnerabilities.
 /// Streams human-readable output while scanning, then caches the JSON result.
-pub fn spawn_vuln_scan(app: &mut App, name: String) {
+pub fn spawn_vuln_scan(app: &mut AppState, name: String) {
     app.output.clear();
     app.output.push(format!("$ brew vulns {name}"));
     let (tx, rx) = mpsc::channel();
@@ -634,139 +341,4 @@ pub fn spawn_vuln_scan(app: &mut App, name: String) {
         ));
     });
     app.cmd_rx = Some(rx);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn pkg(name: &str, outdated: bool, cask: bool) -> Package {
-        Package {
-            name: name.into(),
-            desc: format!("{} desc", name),
-            version: "1.0".into(),
-            cask,
-            outdated,
-            installed_version: Some("1.0".into()),
-            pinned: false,
-            service_status: None,
-            deprecation: None,
-            tap: None,
-        }
-    }
-
-    #[test]
-    fn filters_sections() {
-        let mut app = App {
-            sections: vec![
-                Section::Installed,
-                Section::Outdated,
-                Section::Casks,
-                Section::Leaves,
-                Section::Catalog,
-                Section::Services,
-            ],
-            brewfile_path: None,
-            brewfile_entries: Vec::new(),
-            brewfile: Vec::new(),
-            packages: vec![
-                pkg("git", false, false),
-                pkg("openssl", true, false),
-                pkg("firefox", true, true),
-            ],
-            filtered: Vec::new(),
-            section_idx: 1, // Outdated
-            list_idx: 0,
-            panel: Panel::Sidebar,
-            sort: SortMode::Natural,
-            leaves: vec![],
-            catalog: Vec::new(),
-            installs: Default::default(),
-            search: String::new(),
-            prompt_buffer: String::new(),
-            mode: AppMode::Normal,
-            output: Vec::new(),
-            output_offset: 0,
-            cmd_rx: None,
-            frame: 0,
-            load_rx: None,
-            services: Vec::new(),
-            taps: Vec::new(),
-            vulns: Default::default(),
-            catalog_rx: None,
-            theme: crate::theme::DEFAULT,
-        };
-        app.apply_section();
-        assert_eq!(app.filtered.len(), 2);
-        app.search = "firef".into();
-        app.apply_section();
-        assert_eq!(app.filtered.len(), 1);
-        assert_eq!(app.filtered[0].name, "firefox");
-    }
-
-    fn bare(packages: Vec<Package>) -> App {
-        let mut app = App {
-            sections: vec![
-                Section::Installed,
-                Section::Outdated,
-                Section::Casks,
-                Section::Leaves,
-                Section::Catalog,
-                Section::Services,
-            ],
-            brewfile_path: None,
-            brewfile_entries: Vec::new(),
-            brewfile: Vec::new(),
-            packages,
-            filtered: Vec::new(),
-            section_idx: 0,
-            list_idx: 0,
-            panel: Panel::Sidebar,
-            sort: SortMode::Natural,
-            leaves: vec![],
-            catalog: Vec::new(),
-            installs: Default::default(),
-            search: String::new(),
-            prompt_buffer: String::new(),
-            mode: AppMode::Normal,
-            output: Vec::new(),
-            output_offset: 0,
-            cmd_rx: None,
-            frame: 0,
-            load_rx: None,
-            services: Vec::new(),
-            taps: Vec::new(),
-            vulns: Default::default(),
-            catalog_rx: None,
-            theme: crate::theme::DEFAULT,
-        };
-        app.apply_section();
-        app
-    }
-
-    #[test]
-    fn sort_modes_reorder_the_list() {
-        let mut app = bare(vec![
-            pkg("openssl", false, false),
-            pkg("git", false, false),
-            pkg("zlib", false, false),
-        ]);
-        app.installs.insert("git".into(), 10);
-        app.installs.insert("zlib".into(), 100);
-
-        app.sort = SortMode::Name;
-        app.apply_section();
-        let names: Vec<&str> = app.filtered.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, ["git", "openssl", "zlib"]);
-
-        app.sort = SortMode::Installs;
-        app.apply_section();
-        let names: Vec<&str> = app.filtered.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, ["zlib", "git", "openssl"]);
-
-        app.sort = SortMode::Natural;
-        app.apply_section();
-        let names: Vec<&str> = app.filtered.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, ["openssl", "git", "zlib"]);
-    }
 }
