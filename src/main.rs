@@ -12,6 +12,9 @@ mod theme;
 mod ui;
 mod update;
 
+#[cfg(test)]
+mod tests;
+
 use anyhow::Result;
 use crossterm::{
     event, execute,

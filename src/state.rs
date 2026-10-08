@@ -106,6 +106,7 @@ pub enum AppMode {
 /// (`cmd_rx`/`load_rx`/`catalog_rx`) previously stored here now live in the
 /// runtime, which forwards their events back into [`crate::update::update`]
 /// as [`crate::action::Action`]s.
+#[derive(Debug, Clone)]
 pub struct AppState {
     pub packages: Vec<Package>,
     pub filtered: Vec<Package>,
@@ -351,6 +352,78 @@ impl AppState {
 
     pub fn selected(&self) -> Option<&Package> {
         self.filtered.get(self.list_idx)
+    }
+
+    /// Structural invariants the model must hold after every transition.
+    /// Checked in `update` under debug assertions and after every step of
+    /// the scenario/fuzz regression tests — a future change that breaks one
+    /// of these rules fails with a named violation instead of a weird render.
+    pub fn check_invariants(&self) -> Result<(), String> {
+        if self.sections.is_empty() {
+            return Err("sections is empty".into());
+        }
+        if self.section_idx >= self.sections.len() {
+            return Err(format!(
+                "section_idx {} out of range ({})",
+                self.section_idx,
+                self.sections.len()
+            ));
+        }
+        let len = self.filtered.len();
+        if len > 0 && self.list_idx >= len {
+            return Err(format!("list_idx {} out of range ({})", self.list_idx, len));
+        }
+        if len == 0 && self.list_idx != 0 {
+            return Err(format!(
+                "list_idx {} is non-zero on an empty list",
+                self.list_idx
+            ));
+        }
+        // PageUp only moves the output view back when there are lines to
+        // scroll; every command/load reset clears both together.
+        if self.output.is_empty() && self.output_offset != 0 {
+            return Err(format!(
+                "output_offset {} with an empty output pane",
+                self.output_offset
+            ));
+        }
+        if let AppMode::Menu(i) = self.mode
+            && i >= MENU_ACTIONS.len()
+        {
+            return Err(format!(
+                "menu index {} out of range ({})",
+                i,
+                MENU_ACTIONS.len()
+            ));
+        }
+        if let AppMode::ThemePicker(i) = self.mode
+            && i >= crate::theme::THEMES.len()
+        {
+            return Err(format!(
+                "theme picker index {} out of range ({})",
+                i,
+                crate::theme::THEMES.len()
+            ));
+        }
+        // The visible list must be a subset of its section's source data —
+        // apply_section is the only writer, so this catches any future
+        // direct mutation of `filtered`.
+        let source: &[Package] = match self.sections[self.section_idx] {
+            Section::Catalog => &self.catalog,
+            Section::Services => &self.services,
+            Section::Brewfile => &self.brewfile,
+            Section::Taps => &self.taps,
+            _ => &self.packages,
+        };
+        for p in &self.filtered {
+            if !source.iter().any(|s| s.name == p.name && s.cask == p.cask) {
+                return Err(format!(
+                    "filtered contains '{}' which is not in the active section source",
+                    p.name
+                ));
+            }
+        }
+        Ok(())
     }
 }
 

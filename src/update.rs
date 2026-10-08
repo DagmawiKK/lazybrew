@@ -13,17 +13,28 @@ use crate::state::{AppMode, AppState, Modal, ModalAction, Panel, Section, is_off
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::path::PathBuf;
 
-/// Fold `action` into `state` and return the effects to run.
+/// Fold `action` into `state` and return the effects to run. In debug/test
+/// builds every transition is checked against [`AppState::check_invariants`]
+/// so a structural break fails immediately at the source.
 pub fn update(state: &mut AppState, action: Action) -> Vec<Effect> {
+    let effects = update_inner(state, &action);
+    #[cfg(debug_assertions)]
+    if let Err(violation) = state.check_invariants() {
+        panic!("state invariant violation after {action:?}: {violation}");
+    }
+    effects
+}
+
+fn update_inner(state: &mut AppState, action: &Action) -> Vec<Effect> {
     match action {
-        Action::Key(key) => handle_key(state, key),
-        Action::Mouse(e) => handle_mouse(state, e),
+        Action::Key(key) => handle_key(state, *key),
+        Action::Mouse(e) => handle_mouse(state, *e),
         Action::Tick => Vec::new(),
         Action::InstalledLoaded((pkgs, leaves, services, taps)) => {
-            state.packages = pkgs;
-            state.leaves = leaves;
-            state.services = services;
-            state.taps = taps;
+            state.packages = pkgs.clone();
+            state.leaves = leaves.clone();
+            state.services = services.clone();
+            state.taps = taps.clone();
             state.loading_packages = false;
             state.loading_catalog = true;
             state.refresh_brewfile();
@@ -32,19 +43,19 @@ pub fn update(state: &mut AppState, action: Action) -> Vec<Effect> {
             vec![Effect::FetchCatalog]
         }
         Action::CatalogLoaded((cat, installs)) => {
-            state.catalog = cat;
-            state.installs = installs;
+            state.catalog = cat.clone();
+            state.installs = installs.clone();
             state.loading_catalog = false;
             state.refresh_brewfile();
             state.apply_section();
             Vec::new()
         }
         Action::CmdLine(line) => {
-            state.output.push(line);
+            state.output.push(line.clone());
             Vec::new()
         }
         Action::CmdDone(ok) => {
-            state.output.push(if ok {
+            state.output.push(if *ok {
                 "== done ==".into()
             } else {
                 "== FAILED ==".into()
@@ -66,7 +77,7 @@ pub fn update(state: &mut AppState, action: Action) -> Vec<Effect> {
                     .output
                     .push(format!("{name}: {} vulnerabilities", list.len()));
             }
-            state.vulns.insert(name, list);
+            state.vulns.insert(name.clone(), list.clone());
             Vec::new()
         }
         Action::VulnsMissing => {
