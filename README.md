@@ -45,6 +45,8 @@ services, taps, and Brewfiles — all without leaving the terminal.
 - **Theme switcher** (`t`): 6 built-in themes — Lazybrew, btop, Dracula,
   Nord, Gruvbox, Solarized — with live preview swatches; the choice is
   persisted to the XDG config dir
+- **Self-update** (`W`): downloads the latest GitHub release for your
+  platform and swaps in the new binary (the old one is kept as `.old`)
 - Help overlay (`?`), animated loading and command spinners, pulsing
   busy-state cues, per-line output colorization
 
@@ -76,6 +78,7 @@ services, taps, and Brewfiles — all without leaving the terminal.
 | `I` | install by typed name, tab completes against the catalog (install-all in Brewfile) |
 | `R` | remove all (Brewfile section) |
 | `e` | export Brewfile to `~/Brewfile` |
+| `W` | update lazybrew itself (downloads the latest GitHub release) |
 | `?` | help |
 | `q` | quit |
 

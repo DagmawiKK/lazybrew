@@ -298,13 +298,11 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyFlow {
         KeyCode::Char('D') => spawn_brew(app, &["doctor".into()]),
         KeyCode::Char('C') => spawn_brew(app, &["config".into()]),
         KeyCode::Char('W') => {
+            let target = crate::self_update::target_triple();
+            let url = crate::self_update::download_url(target);
+            let exe = std::env::current_exe().unwrap_or_else(|_| "lazybrew".into());
             app.mode = AppMode::Confirm(modal(
-                format!(
-                    "Update lazybrew from {}?\n\n  git -C {:?} pull --ff-only\n  cargo install --path {:?} --force\n\n(y/n)",
-                    crate::app::SOURCE_DIR,
-                    crate::app::SOURCE_DIR,
-                    crate::app::SOURCE_DIR
-                ),
+                crate::self_update::plan_text(&url, &exe),
                 ModalAction::SelfUpdate,
             ));
         }
@@ -522,7 +520,7 @@ pub fn help_text() -> String {
         ("D", "brew doctor"),
         ("C", "brew config"),
         ("B", "brew bundle check (-f file)"),
-        ("W", "update lazybrew itself (git pull + cargo install)"),
+        ("W", "update lazybrew from the GitHub release"),
         ("t", "theme picker"),
         ("S", "sort mode (natural/name/installs)"),
         ("e", "export Brewfile to ~/Brewfile"),
@@ -748,8 +746,9 @@ mod tests {
             panic!("expected confirm modal, got {:?}", app.mode);
         };
         assert!(
-            modal.text.contains("git") && modal.text.contains("cargo install"),
-            "self-update text should explain the steps: {}",
+            modal.text.contains("GitHub release")
+                && modal.text.contains("releases/latest/download/"),
+            "self-update text should explain the download: {}",
             modal.text
         );
         assert!(matches!(modal.confirm, ModalAction::SelfUpdate));

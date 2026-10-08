@@ -3,6 +3,7 @@ mod brew;
 mod brewfile;
 mod catalog;
 mod input;
+mod self_update;
 mod theme;
 mod ui;
 

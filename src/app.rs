@@ -179,9 +179,6 @@ pub fn is_official_tap(tap: &str) -> bool {
     tap == "homebrew/core" || tap.starts_with("homebrew/cask")
 }
 
-/// Directory lazybrew was built from; self-update pulls and reinstalls there.
-pub const SOURCE_DIR: &str = env!("CARGO_MANIFEST_DIR");
-
 impl App {
     /// Take and close the confirm dialog, if one is open.
     pub fn take_modal(&mut self) -> Option<Modal> {
@@ -371,15 +368,9 @@ pub fn run_menu_action(app: &mut App, idx: usize) {
 }
 
 pub fn run_modal_action(app: &mut App, modal: &Modal) {
-    // Self-update does not go through brew; run git pull + cargo install.
+    // Self-update does not go through brew; swap in the newest release binary.
     if matches!(modal.confirm, ModalAction::SelfUpdate) {
-        spawn_shell_multi(
-            app,
-            vec![
-                format!("git -C {:?} pull --ff-only", SOURCE_DIR),
-                format!("cargo install --path {:?} --force", SOURCE_DIR),
-            ],
-        );
+        spawn_self_update(app);
         return;
     }
     let commands: Vec<Vec<String>> = match &modal.confirm {
@@ -521,15 +512,9 @@ fn run_brew_command(tx: &mpsc::Sender<CmdEvent>, args: &[String]) -> bool {
     stream_cmd(tx, &mut cmd)
 }
 
-/// Run one shell command line (`sh -c`), streaming output to `tx`.
-fn run_shell_command(tx: &mpsc::Sender<CmdEvent>, cmdline: &str) -> bool {
-    let mut cmd = std::process::Command::new("sh");
-    cmd.arg("-c").arg(cmdline);
-    stream_cmd(tx, &mut cmd)
-}
-
 /// Spawn `cmd`, stream stdout+stderr line-by-line to `tx`, and report success.
-fn stream_cmd(tx: &mpsc::Sender<CmdEvent>, cmd: &mut std::process::Command) -> bool {
+/// Also used by `self_update::run` for the curl/tar steps.
+pub(crate) fn stream_cmd(tx: &mpsc::Sender<CmdEvent>, cmd: &mut std::process::Command) -> bool {
     let mut child = match cmd
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -563,23 +548,22 @@ fn stream_cmd(tx: &mpsc::Sender<CmdEvent>, cmd: &mut std::process::Command) -> b
     status
 }
 
-/// Run a sequence of shell command lines sequentially (`sh -c` each),
-/// streaming output to the same channel as brew commands.
-pub fn spawn_shell_multi(app: &mut App, commands: Vec<String>) {
+/// Update lazybrew itself: download the newest GitHub release tarball and
+/// replace the running binary. Progress streams through the output pane,
+/// spawned like any other background command.
+pub fn spawn_self_update(app: &mut App) {
+    let target = crate::self_update::target_triple();
+    let url = crate::self_update::download_url(target);
+    let exe = std::env::current_exe().unwrap_or_else(|_| "lazybrew".into());
     app.output.clear();
     app.output_offset = 0;
-    for c in &commands {
-        app.output.push(format!("$ {c}"));
-    }
+    app.output
+        .push(format!("$ curl -fsSL -o <tmp tarball> {url}"));
+    app.output.push(format!("$ install to {}", exe.display()));
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let mut all_ok = true;
-        for cmdline in commands {
-            if !run_shell_command(&tx, &cmdline) {
-                all_ok = false;
-            }
-        }
-        let _ = tx.send(CmdEvent::Done(all_ok));
+        let ok = crate::self_update::run(&tx, &url, target, &exe);
+        let _ = tx.send(CmdEvent::Done(ok));
     });
     app.cmd_rx = Some(rx);
 }
