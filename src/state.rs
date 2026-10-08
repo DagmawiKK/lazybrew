@@ -358,6 +358,9 @@ impl AppState {
     /// Checked in `update` under debug assertions and after every step of
     /// the scenario/fuzz regression tests — a future change that breaks one
     /// of these rules fails with a named violation instead of a weird render.
+    /// Compiled for debug builds and tests only; release builds have no
+    /// caller (the `update` hook is itself debug-only).
+    #[cfg(any(test, debug_assertions))]
     pub fn check_invariants(&self) -> Result<(), String> {
         if self.sections.is_empty() {
             return Err("sections is empty".into());

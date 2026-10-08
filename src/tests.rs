@@ -558,7 +558,6 @@ fn fuzz_driving_actions_never_breaks_invariants() {
         Action::Key(kcode(KeyCode::PageDown)),
         Action::Key(kcode(KeyCode::Enter)),
         Action::Key(kcode(KeyCode::Esc)),
-        Action::Tick,
         Action::CmdLine("some output line".into()),
         Action::CmdDone(true),
         Action::CmdDone(false),
@@ -573,7 +572,6 @@ fn fuzz_driving_actions_never_breaks_invariants() {
         Action::CatalogLoaded((vec![], Default::default())),
         Action::Mouse(mouse(MouseEventKind::Down(MouseButton::Left), 5, 4)),
         Action::Mouse(mouse(MouseEventKind::ScrollDown, 50, 10)),
-        Action::Quit,
     ];
 
     // xorshift64: deterministic across runs and platforms.

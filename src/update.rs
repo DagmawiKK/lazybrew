@@ -29,7 +29,6 @@ fn update_inner(state: &mut AppState, action: &Action) -> Vec<Effect> {
     match action {
         Action::Key(key) => handle_key(state, *key),
         Action::Mouse(e) => handle_mouse(state, *e),
-        Action::Tick => Vec::new(),
         Action::InstalledLoaded((pkgs, leaves, services, taps)) => {
             state.packages = pkgs.clone();
             state.leaves = leaves.clone();
@@ -87,7 +86,6 @@ fn update_inner(state: &mut AppState, action: &Action) -> Vec<Effect> {
             ));
             Vec::new()
         }
-        Action::Quit => vec![Effect::Quit],
     }
 }
 

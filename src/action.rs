@@ -10,9 +10,6 @@
 use crossterm::event::{KeyEvent, MouseEvent};
 
 #[derive(Debug, Clone, PartialEq)]
-// Background-event variants are consumed by `update`; the runtime that
-// constructs them lands in commit B, so they are dead only until then.
-#[allow(dead_code)]
 pub enum Action {
     /// A key was pressed (decoded in `update`, dispatched by mode).
     Key(KeyEvent),
@@ -30,8 +27,4 @@ pub enum Action {
     VulnsScanned(String, Vec<String>),
     /// `brew vulns` is not installed.
     VulnsMissing,
-    /// Frame tick (spinner animation).
-    Tick,
-    /// Leave the app.
-    Quit,
 }
