@@ -2,6 +2,14 @@
 name = "lazybrew"
 version = "0.1.0"
 edition = "2024"
+description = "A lazygit-inspired, btop-styled terminal UI for Homebrew, written in Rust with ratatui"
+license = "MIT"
+repository = "https://github.com/DagmawiKK/lazybrew"
+readme = "README.md"
+keywords = ["homebrew", "tui", "terminal", "ratatui", "brew"]
+categories = ["command-line-utilities"]
+# Keep the uploaded .crate lean: no CI files or 900KB of screenshots.
+exclude = [".github/", "docs/"]
 
 [dependencies]
 anyhow = "1.0.104"
