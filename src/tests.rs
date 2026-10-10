@@ -95,6 +95,29 @@ fn typed(name: &str) -> Vec<Action> {
     name.chars().map(|c| Action::Key(key(c))).collect()
 }
 
+/// Registry index of the command whose label contains `needle`.
+fn cmd_index(needle: &str) -> usize {
+    crate::registry::commands()
+        .iter()
+        .position(|c| c.label.contains(needle))
+        .unwrap_or_else(|| panic!("no registry command matching {needle:?}"))
+}
+
+/// Open the action menu (`x`) and navigate down to the command whose label
+/// contains `needle`, then run it — exercising the index-based menu path that
+/// keyless commands rely on.
+fn drive_menu_to(state: &mut AppState, needle: &str) -> Vec<Effect> {
+    let mut actions = vec![Action::Key(key('x'))];
+    for _ in 0..cmd_index(needle) {
+        actions.push(Action::Key(key('j')));
+    }
+    actions.push(Action::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::empty(),
+    )));
+    drive(state, &actions)
+}
+
 // --------------------------------------------------------------------------
 // Scenario tests: exact effects for real user flows
 // --------------------------------------------------------------------------
@@ -171,6 +194,104 @@ fn menu_pin_and_unpin_emit_a_direct_brew_command() {
     assert_eq!(
         fx,
         [Effect::RunBrew(vec![vec!["unpin".into(), "git".into()]])]
+    );
+}
+
+#[test]
+fn registry_declares_unique_shortcuts_and_keeps_the_classic_ones() {
+    let mut seen = std::collections::HashSet::new();
+    for cmd in crate::registry::commands() {
+        if let Some(KeyCode::Char(c)) = cmd.key {
+            assert!(seen.insert(c), "two commands claim the shortcut '{c}'");
+        }
+        assert!(!cmd.label.trim().is_empty(), "empty label in the registry");
+        assert!(
+            !cmd.desc.trim().is_empty(),
+            "empty description in the registry"
+        );
+    }
+    for c in ['u', 'R', 'r', 'i', 'd', 'p', 'o'] {
+        assert!(seen.contains(&c), "classic shortcut '{c}' disappeared");
+    }
+}
+
+#[test]
+fn menu_reaches_keyless_commands_by_navigation() {
+    let mut s = base();
+    assert_eq!(
+        drive_menu_to(&mut s, "Link"),
+        [Effect::RunBrew(vec![vec!["link".into(), "git".into()]])]
+    );
+
+    let mut s = base();
+    assert_eq!(
+        drive_menu_to(&mut s, "Unlink"),
+        [Effect::RunBrew(vec![vec!["unlink".into(), "git".into()]])]
+    );
+
+    let mut s = base();
+    assert_eq!(
+        drive_menu_to(&mut s, "Uses"),
+        [Effect::RunBrew(vec![vec![
+            "uses".into(),
+            "--installed".into(),
+            "git".into()
+        ]])]
+    );
+
+    let mut s = base();
+    assert_eq!(
+        drive_menu_to(&mut s, "Missing"),
+        [Effect::RunBrew(vec![vec!["missing".into(), "git".into()]])]
+    );
+}
+
+#[test]
+fn registry_gates_commands_to_their_context() {
+    // `brew uses` is formula-only: inert on a selected cask.
+    let mut cask = base();
+    cask.packages.push(pkg("firefox", true, true));
+    cask.apply_section();
+    cask.list_idx = 2;
+    let uses = cmd_index("Uses");
+    assert!(crate::registry::run_index(&mut cask, uses).is_empty());
+
+    // Service commands only fire inside the Services section.
+    let restart = cmd_index("Restart");
+    let run = cmd_index("Run service");
+    let mut installed = base();
+    assert!(crate::registry::run_index(&mut installed, restart).is_empty());
+    assert!(crate::registry::run_index(&mut installed, run).is_empty());
+
+    let mut services = AppState {
+        sections: vec![
+            Section::Services,
+            Section::Installed,
+            Section::Outdated,
+            Section::Casks,
+            Section::Leaves,
+            Section::Catalog,
+        ],
+        section_idx: 0,
+        services: vec![service("nginx", Some("started"))],
+        ..AppState::default()
+    };
+    services.apply_section();
+    assert_eq!(
+        crate::registry::run_index(&mut services, restart),
+        [Effect::RunBrew(vec![vec![
+            "services".into(),
+            "restart".into(),
+            "nginx".into()
+        ]])]
+    );
+    assert_eq!(
+        crate::registry::run_index(&mut services, run),
+        [Effect::RunBrew(vec![vec![
+            "services".into(),
+            "run".into(),
+            "nginx".into()
+        ]])]
     );
 }
 

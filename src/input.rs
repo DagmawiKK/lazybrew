@@ -85,10 +85,7 @@ pub fn help_text() -> String {
         ),
         ("R", "remove all (Brewfile section)"),
         ("i/r", "tap/untap (Taps section)"),
-        (
-            "x",
-            "action menu (upgrade/reinstall/remove/info/deps/pin/home)",
-        ),
+        ("x", "action menu (navigate j/k, enter to run)"),
         ("D", "brew doctor"),
         ("C", "brew config"),
         ("B", "brew bundle check (-f file)"),

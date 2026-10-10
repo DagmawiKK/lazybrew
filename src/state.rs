@@ -94,7 +94,7 @@ pub enum AppMode {
     Prompt,
     /// Confirmation dialog.
     Confirm(Modal),
-    /// Action menu for the selected package.
+    /// Action menu over the command registry ([`crate::registry`]).
     Menu(usize),
     /// Theme picker overlay.
     ThemePicker(usize),
@@ -200,18 +200,6 @@ pub struct Modal {
     pub text: String,
     pub confirm: ModalAction,
 }
-
-/// The actions menu items, in index order; the active index is carried by
-/// `AppMode::Menu`. Shortcut letters lead each label.
-pub const MENU_ACTIONS: &[&str] = &[
-    "u  Upgrade",
-    "R  Reinstall",
-    "r  Remove",
-    "i  Info",
-    "d  Deps",
-    "p  Pin/Unpin",
-    "o  Home",
-];
 
 /// Convenience constructor for confirm dialogs.
 pub fn modal(text: impl Into<String>, confirm: ModalAction) -> Modal {
@@ -391,12 +379,12 @@ impl AppState {
             ));
         }
         if let AppMode::Menu(i) = self.mode
-            && i >= MENU_ACTIONS.len()
+            && i >= crate::registry::commands().len()
         {
             return Err(format!(
                 "menu index {} out of range ({})",
                 i,
-                MENU_ACTIONS.len()
+                crate::registry::commands().len()
             ));
         }
         if let AppMode::ThemePicker(i) = self.mode

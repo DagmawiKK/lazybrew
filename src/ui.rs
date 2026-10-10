@@ -563,29 +563,34 @@ fn render_overlays(f: &mut Frame, app: &AppState) {
             );
         }
         AppMode::Menu(menu_idx) => {
-            let lines: Vec<Line> = crate::state::MENU_ACTIONS
+            let cmds = crate::registry::commands();
+            let lines: Vec<Line> = cmds
                 .iter()
                 .enumerate()
-                .map(|(i, it)| {
+                .map(|(i, cmd)| {
                     if i == *menu_idx {
                         Line::from(Span::styled(
-                            format!(" ▸ {it} "),
+                            format!(" ▸ {} ", cmd.label),
                             Style::default().fg(th.bg).bg(th.accent).bold(),
                         ))
                     } else {
                         Line::from(Span::styled(
-                            format!("   {it} "),
+                            format!("   {} ", cmd.label),
                             Style::default().fg(th.dim),
                         ))
                     }
                 })
                 .collect();
-            let area = centered_rect(30, 34, f.area());
+            let desc = cmds.get(*menu_idx).map_or("", |c| c.desc);
+            let area = centered_rect(46, 34, f.area());
             f.render_widget(Clear, area);
             f.render_widget(
                 Paragraph::new(lines)
                     .style(Style::default().bg(th.bar_bg))
-                    .block(th.panel_block(" Actions ", true)),
+                    .block(
+                        th.panel_block(" Actions ", true)
+                            .title_bottom(Span::styled(desc, Style::default().fg(th.dim))),
+                    ),
                 area,
             );
         }
@@ -805,6 +810,33 @@ mod tests {
             );
         }
         assert!(text.contains("✓"), "current theme should be checkmarked");
+    }
+
+    #[test]
+    fn actions_menu_renders_the_registry_and_focused_desc() {
+        let mut app = test_app();
+        app.mode = AppMode::Menu(0);
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| render(f, &app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        // Existing and newly registered commands all come from the registry.
+        for label in [
+            "Upgrade",
+            "Reinstall",
+            "Pin/Unpin",
+            "Link",
+            "Uses",
+            "Restart service",
+        ] {
+            assert!(text.contains(label), "menu missing {label:?}: {text}");
+        }
+        // The focused command's description is shown in the block border.
+        assert!(
+            text.contains("Upgrade the selected package"),
+            "missing focused description: {text}"
+        );
     }
 
     #[test]

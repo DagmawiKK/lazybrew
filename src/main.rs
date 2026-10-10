@@ -5,6 +5,7 @@ mod catalog;
 mod effect;
 mod exec;
 mod input;
+mod registry;
 mod runtime;
 mod self_update;
 mod state;

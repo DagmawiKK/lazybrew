@@ -219,7 +219,8 @@ fn confirm_key(state: &mut AppState, key: KeyEvent) -> Vec<Effect> {
 }
 
 fn menu_key(state: &mut AppState, key: KeyEvent) -> Vec<Effect> {
-    let last = crate::state::MENU_ACTIONS.len() - 1;
+    let count = crate::registry::commands().len();
+    let last = count - 1;
     let idx = match state.mode {
         AppMode::Menu(i) => i,
         _ => return Vec::new(),
@@ -230,7 +231,7 @@ fn menu_key(state: &mut AppState, key: KeyEvent) -> Vec<Effect> {
             Vec::new()
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            state.mode = AppMode::Menu((idx + 1) % crate::state::MENU_ACTIONS.len());
+            state.mode = AppMode::Menu((idx + 1) % count);
             Vec::new()
         }
         KeyCode::Up | KeyCode::Char('k') => {
@@ -239,19 +240,13 @@ fn menu_key(state: &mut AppState, key: KeyEvent) -> Vec<Effect> {
         }
         KeyCode::Enter => {
             state.mode = AppMode::Normal;
-            menu_effects(state, idx)
+            crate::registry::run_index(state, idx)
         }
         KeyCode::Char(c) => {
             state.mode = AppMode::Normal;
-            match c {
-                'u' => menu_effects(state, 0),
-                'R' => menu_effects(state, 1),
-                'r' => menu_effects(state, 2),
-                'i' => menu_effects(state, 3),
-                'd' => menu_effects(state, 4),
-                'p' => menu_effects(state, 5),
-                'o' => menu_effects(state, 6),
-                _ => Vec::new(),
+            match crate::registry::shortcut_index(c) {
+                Some(i) => crate::registry::run_index(state, i),
+                None => Vec::new(),
             }
         }
         _ => Vec::new(),
@@ -301,8 +296,8 @@ fn cmd(verb: &str, cask: bool, name: &str) -> Vec<String> {
 
 /// Stage a brew command: mark the command runner active, clear the output
 /// pane, record the `$ brew …` prompt line, and hand the command back to the
-/// runtime as an effect.
-fn brew_effect(state: &mut AppState, args: &[String]) -> Vec<Effect> {
+/// runtime as an effect. Shared by key handlers and the command registry.
+pub(crate) fn brew_effect(state: &mut AppState, args: &[String]) -> Vec<Effect> {
     state.cmd_active = true;
     state.output.clear();
     state.output_offset = 0;
@@ -706,43 +701,4 @@ fn brewfile_commands(state: &AppState, install: bool) -> Vec<Vec<String>> {
         }
     }
     commands
-}
-
-/// The action menu for the selected package: indices match MENU_ACTIONS.
-/// Items 0-2 confirm; 3-6 run brew immediately.
-fn menu_effects(state: &mut AppState, idx: usize) -> Vec<Effect> {
-    let Some(p) = state.selected().cloned() else {
-        return Vec::new();
-    };
-    match idx {
-        0 => {
-            state.mode = AppMode::Confirm(modal(
-                format!("Upgrade '{}'? (y/n)", p.name),
-                ModalAction::Upgrade(p.name, p.cask),
-            ));
-            Vec::new()
-        }
-        1 => {
-            state.mode = AppMode::Confirm(modal(
-                format!("Reinstall '{}'? (y/n)", p.name),
-                ModalAction::Reinstall(p.name, p.cask),
-            ));
-            Vec::new()
-        }
-        2 => {
-            state.mode = AppMode::Confirm(modal(
-                format!("Remove '{}'? (y/n)", p.name),
-                ModalAction::Remove(p.name, p.cask),
-            ));
-            Vec::new()
-        }
-        3 => brew_effect(state, &["info".into(), p.name]),
-        4 => brew_effect(state, &["deps".into(), p.name]),
-        5 => {
-            let verb = if p.pinned { "unpin" } else { "pin" };
-            brew_effect(state, &[verb.into(), p.name])
-        }
-        6 => brew_effect(state, &["home".into(), p.name]),
-        _ => Vec::new(),
-    }
 }
