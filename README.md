@@ -41,6 +41,8 @@ services, taps, and Brewfiles — all without leaving the terminal.
   install-all / remove-all
 - **Vulnerability scan** (`brew vulns`) with cached results shown in details
 - Pin/unpin, info, deps via the `x` action menu
+- **Link / unlink** (`L` / `Y`, or the `x` menu): symlink a keg-only
+  formula's files into the prefix, or remove those symlinks
 - Brewfile export via `brew bundle dump` (`e`)
 - **Theme switcher** (`t`): 6 built-in themes — Lazybrew, btop, Dracula,
   Nord, Gruvbox, Solarized — with live preview swatches; the choice is
@@ -63,6 +65,7 @@ services, taps, and Brewfiles — all without leaving the terminal.
 | `g`/`G` | top / bottom |
 | `i` | install the **selected** package (prompt in Taps section; reports if already installed) |
 | `u` / `r` | upgrade / remove selected (untap in Taps section) |
+| `L` / `Y` | link / unlink selected package (keg-only symlinks) |
 | `A` | upgrade all outdated |
 | `U` | `brew update` |
 | `K` | `brew cleanup` |
@@ -70,7 +73,7 @@ services, taps, and Brewfiles — all without leaving the terminal.
 | `s` | start/stop service (Services section) |
 | `S` | cycle sort mode — natural / name / installs (90-day) |
 | `v` | vulnerability scan (formulae) |
-| `x` | action menu (upgrade / reinstall / remove / info / deps / pin / home) |
+| `x` | action menu — manage, inspect, link, health, services (navigate j/k, enter to run) |
 | `D` | `brew doctor` |
 | `C` | `brew config` |
 | `B` | `brew bundle check` (needs `-f`) |

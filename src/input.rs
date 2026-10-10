@@ -73,6 +73,8 @@ pub fn help_text() -> String {
         ("i", "install selected package (tap prompt in Taps)"),
         ("u", "upgrade selected"),
         ("r", "remove selected (untap in Taps section)"),
+        ("L", "link selected package (keg-only)"),
+        ("Y", "unlink selected package"),
         ("A", "upgrade all outdated"),
         ("U", "brew update"),
         ("K", "brew cleanup"),

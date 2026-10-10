@@ -198,6 +198,21 @@ fn menu_pin_and_unpin_emit_a_direct_brew_command() {
 }
 
 #[test]
+fn link_and_unlink_hotkeys_stage_brew_commands() {
+    let mut s = base();
+    assert_eq!(
+        drive(&mut s, &[Action::Key(key('L'))]),
+        [Effect::RunBrew(vec![vec!["link".into(), "git".into()]])]
+    );
+
+    let mut s = base();
+    assert_eq!(
+        drive(&mut s, &[Action::Key(key('Y'))]),
+        [Effect::RunBrew(vec![vec!["unlink".into(), "git".into()]])]
+    );
+}
+
+#[test]
 fn registry_declares_unique_shortcuts_and_keeps_the_classic_ones() {
     let mut seen = std::collections::HashSet::new();
     for cmd in crate::registry::commands() {

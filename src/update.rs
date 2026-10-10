@@ -458,6 +458,20 @@ fn normal_key(state: &mut AppState, key: KeyEvent) -> Vec<Effect> {
             }
             Vec::new()
         }
+        KeyCode::Char('L') => {
+            if let Some(p) = state.selected().cloned() {
+                brew_effect(state, &["link".into(), p.name])
+            } else {
+                Vec::new()
+            }
+        }
+        KeyCode::Char('Y') => {
+            if let Some(p) = state.selected().cloned() {
+                brew_effect(state, &["unlink".into(), p.name])
+            } else {
+                Vec::new()
+            }
+        }
         KeyCode::Char('A') => {
             state.mode = AppMode::Confirm(modal(
                 format!(
